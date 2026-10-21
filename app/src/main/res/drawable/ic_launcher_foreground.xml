@@ -1,0 +1,40 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Scaled FocusLock Squircle centered in 108dp -->
+    <path
+        android:pathData="M37,21 C25,21 21,25 21,37 L21,71 C21,83 25,87 37,87 L71,87 C83,87 87,83 87,71 L87,37 C87,25 83,21 71,21 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:angle="315"
+                android:startColor="#38BDF8"
+                android:centerColor="#6366F1"
+                android:endColor="#8B5CF6"
+                android:type="linear" />
+        </aapt:attr>
+    </path>
+
+    <!-- Padlock Shackle -->
+    <path
+        android:pathData="M43,47 L43,39 C43,32.92 47.92,28 54,28 C60.08,28 65,32.92 65,39 L65,47"
+        android:strokeWidth="5"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round" />
+
+    <!-- Padlock Body -->
+    <path
+        android:pathData="M38,51 C38,47.69 40.69,45 44,45 L64,45 C67.31,45 70,47.69 70,51 L70,73 C70,76.31 67.31,79 64,79 L44,79 C40.69,79 38,76.31 38,73 Z"
+        android:fillColor="#FFFFFF" />
+
+    <!-- Keyhole -->
+    <path
+        android:pathData="M54,58 A 3,3 0 1,1 54,52 A 3,3 0 1,1 54,58 Z"
+        android:fillColor="#4F46E5" />
+    <path
+        android:pathData="M52.5,57 L55.5,57 L56.5,67 L51.5,67 Z"
+        android:fillColor="#4F46E5" />
+</vector>

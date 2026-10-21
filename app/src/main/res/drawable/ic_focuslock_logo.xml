@@ -1,0 +1,73 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="120dp"
+    android:height="120dp"
+    android:viewportWidth="120"
+    android:viewportHeight="120">
+
+    <!-- Outer Squircle with Cyan-to-Indigo-to-Violet Gradient -->
+    <path
+        android:pathData="M32,10 C16,10 10,16 10,32 L10,88 C10,104 16,110 32,110 L88,110 C104,110 110,104 110,88 L110,32 C110,16 104,10 88,10 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:angle="315"
+                android:startColor="#38BDF8"
+                android:centerColor="#6366F1"
+                android:endColor="#8B5CF6"
+                android:type="linear" />
+        </aapt:attr>
+    </path>
+
+    <!-- Inner Soft Radial Gloss -->
+    <path
+        android:pathData="M32,12 C18,12 12,18 12,32 L12,88 C12,102 18,108 32,108 L88,108 C102,108 108,102 108,88 L108,32 C108,18 102,12 88,12 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="60"
+                android:centerY="40"
+                android:gradientRadius="55"
+                android:startColor="#4DFFFFFF"
+                android:endColor="#00000000"
+                android:type="radial" />
+        </aapt:attr>
+    </path>
+
+    <!-- Padlock Shackle Outer (White/Cyan Highlight) -->
+    <path
+        android:pathData="M44,48 L44,38 C44,29.16 51.16,22 60,22 C68.84,22 76,29.16 76,38 L76,48"
+        android:strokeWidth="7"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round" />
+
+    <!-- Padlock Body (Rounded Square with Depth) -->
+    <path
+        android:pathData="M36,54 C36,49.58 39.58,46 44,46 L76,46 C80.42,46 84,49.58 84,54 L84,86 C84,90.42 80.42,94 76,94 L44,94 C39.58,94 36,90.42 36,86 Z"
+        android:fillColor="#FFFFFF" />
+
+    <!-- Padlock Subtle Body Shadow / Gradient Inset -->
+    <path
+        android:pathData="M38,68 L38,84 C38,87.31 40.69,90 44,90 L76,90 C79.31,90 82,87.31 82,84 L82,68 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:angle="270"
+                android:startColor="#00000000"
+                android:endColor="#1A3B82F6"
+                android:type="linear" />
+        </aapt:attr>
+    </path>
+
+    <!-- Padlock Keyhole Top Circle -->
+    <path
+        android:pathData="M60,65 A 4,4 0 1,1 60,57 A 4,4 0 1,1 60,65 Z"
+        android:fillColor="#4F46E5" />
+
+    <!-- Padlock Keyhole Slit -->
+    <path
+        android:pathData="M58,63 L62,63 L63.5,75 L56.5,75 Z"
+        android:fillColor="#4F46E5" />
+
+    <!-- Light Glint / Sparkle Dot -->
+    <path
+        android:pathData="M42,52 A 2,2 0 1,1 42,48 A 2,2 0 1,1 42,52 Z"
+        android:fillColor="#E0F2FE" />
+</vector>

@@ -21,8 +21,8 @@ fun FocusCard(
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 16.dp,
     shape: Shape = RoundedCornerShape(cornerRadius),
-    backgroundColor: Color = MaterialTheme.colorScheme.surfaceVariant,
-    borderColor: Color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+    backgroundColor: Color = DarkSurface,
+    borderColor: Color = DarkBorder,
     contentPadding: Dp = 16.dp,
     content: @Composable BoxScope.() -> Unit
 ) {
@@ -31,8 +31,8 @@ fun FocusCard(
             .shadow(
                 elevation = 2.dp,
                 shape = shape,
-                ambientColor = Color(0x1A000000),
-                spotColor = Color(0x1A000000)
+                ambientColor = Color(0x33000000),
+                spotColor = Color(0x33000000)
             )
             .clip(shape)
             .background(backgroundColor)
@@ -51,7 +51,7 @@ fun FocusCard(
 fun GlassmorphicCard(
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 16.dp,
-    backgroundColor: Color = MaterialTheme.colorScheme.surfaceVariant,
+    backgroundColor: Color = DarkSurface,
     content: @Composable BoxScope.() -> Unit
 ) {
     FocusCard(

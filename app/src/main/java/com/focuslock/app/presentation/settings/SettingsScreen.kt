@@ -3,6 +3,7 @@ package com.focuslock.app.presentation.settings
 import android.content.Context
 import android.content.Intent
 import android.provider.Settings
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,22 +22,23 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Brightness4
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Pin
-import androidx.compose.material.icons.filled.Restore
-import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,22 +48,37 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.focuslock.app.FocusLockApp
+import com.focuslock.app.core.designsystem.BrandCyan
 import com.focuslock.app.core.designsystem.BrandIndigo
-import com.focuslock.app.core.designsystem.BrandTeal
 import com.focuslock.app.core.designsystem.DangerRed
+import com.focuslock.app.core.designsystem.DarkBackground
+import com.focuslock.app.core.designsystem.DarkBorder
+import com.focuslock.app.core.designsystem.DarkBorderSubtle
+import com.focuslock.app.core.designsystem.DarkSurface
+import com.focuslock.app.core.designsystem.DarkSurfaceElevated
 import com.focuslock.app.core.designsystem.FocusCard
+import com.focuslock.app.core.designsystem.FocusLockBottomBar
+import com.focuslock.app.core.designsystem.FocusLockTopBar
+import com.focuslock.app.core.designsystem.Neutral200
+import com.focuslock.app.core.designsystem.Neutral400
 import com.focuslock.app.core.designsystem.SuccessGreen
 import com.focuslock.app.core.designsystem.ThemeMode
-import com.focuslock.app.core.util.BatteryOptimizationHelper
 
 @Composable
 fun SettingsScreen(
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onNavigateToPermissions: () -> Unit = {},
+    showBottomBar: Boolean = false,
+    onNavigateToHome: () -> Unit = {},
+    onNavigateToApps: () -> Unit = {},
+    onNavigateToFocus: () -> Unit = {},
+    onNavigateToAnalytics: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val securityManager = remember { FocusLockApp.instance.pinSecurityManager }
@@ -71,401 +88,393 @@ fun SettingsScreen(
     var pinInput by remember { mutableStateOf("") }
     var showPinDialog by remember { mutableStateOf(false) }
 
+    var showGeneralSection by remember { mutableStateOf(false) }
+    var showHardcoreSection by remember { mutableStateOf(false) }
+    var showLimitsSection by remember { mutableStateOf(false) }
+    var showPrivacySection by remember { mutableStateOf(false) }
+    var showAboutSection by remember { mutableStateOf(false) }
+
     val prefs = remember { context.getSharedPreferences("focuslock_app_prefs", Context.MODE_PRIVATE) }
     var currentTheme by remember {
         mutableStateOf(ThemeMode.valueOf(prefs.getString("theme_mode", ThemeMode.SYSTEM.name) ?: ThemeMode.SYSTEM.name))
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(horizontal = 20.dp)
-    ) {
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Top App Bar
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = MaterialTheme.colorScheme.onBackground
-                )
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            Column {
-                Text(
-                    text = "Settings & Security",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                Text(
-                    text = "Theme, Hardcore Mode, PIN lock, and diagnostics",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+    Scaffold(
+        containerColor = DarkBackground,
+        bottomBar = {
+            if (showBottomBar) {
+                FocusLockBottomBar(
+                    currentRoute = "settings",
+                    onNavigateToHome = onNavigateToHome,
+                    onNavigateToApps = onNavigateToApps,
+                    onNavigateToFocus = onNavigateToFocus,
+                    onNavigateToAnalytics = onNavigateToAnalytics,
+                    onNavigateToSettings = { /* Already on settings */ }
                 )
             }
         }
-
-        Spacer(modifier = Modifier.height(18.dp))
-
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            modifier = Modifier.fillMaxSize()
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 20.dp)
         ) {
-            // Theme Selection
-            item {
-                FocusCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Brightness4,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Screen 9 Top Bar: Back arrow, "Settings"
+            FocusLockTopBar(
+                title = "Settings",
+                navigationIcon = if (!showBottomBar) Icons.AutoMirrored.Filled.ArrowBack else null,
+                onNavigationClick = onBack
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                // Item 1: General (Theme, language, app behavior) (Screen 9)
+                item {
+                    SettingsGroupCard(
+                        icon = Icons.Default.Palette,
+                        iconColor = BrandCyan,
+                        title = "General",
+                        subtitle = "Theme, appearance, and app behavior",
+                        isExpanded = showGeneralSection,
+                        onClick = { showGeneralSection = !showGeneralSection }
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
                             Text(
                                 text = "Appearance Theme",
-                                fontSize = 15.sp,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = Color.White
                             )
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            listOf(ThemeMode.SYSTEM to "System", ThemeMode.LIGHT to "Light", ThemeMode.DARK to "Dark").forEach { (mode, label) ->
-                                val isSelected = currentTheme == mode
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(
-                                            if (isSelected) MaterialTheme.colorScheme.primary
-                                            else MaterialTheme.colorScheme.surface
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                listOf(
+                                    ThemeMode.SYSTEM to "System",
+                                    ThemeMode.DARK to "Dark Navy",
+                                    ThemeMode.LIGHT to "Light"
+                                ).forEach { (mode, label) ->
+                                    val isSelected = currentTheme == mode
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(if (isSelected) BrandIndigo else DarkSurfaceElevated)
+                                            .border(
+                                                width = 1.dp,
+                                                color = if (isSelected) BrandCyan else DarkBorderSubtle,
+                                                shape = RoundedCornerShape(10.dp)
+                                            )
+                                            .clickable {
+                                                currentTheme = mode
+                                                prefs.edit().putString("theme_mode", mode.name).apply()
+                                            }
+                                            .padding(vertical = 10.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = label,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
                                         )
-                                        .border(
-                                            width = 1.dp,
-                                            color = if (isSelected) MaterialTheme.colorScheme.primary
-                                            else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                                            shape = RoundedCornerShape(10.dp)
-                                        )
-                                        .clickable {
-                                            currentTheme = mode
-                                            prefs.edit().putString("theme_mode", mode.name).apply()
-                                        }
-                                        .padding(vertical = 10.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = label,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary
-                                        else MaterialTheme.colorScheme.onSurface
-                                    )
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            // Hardcore Mode Card
-            item {
-                FocusCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(38.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(if (isHardcoreEnabled) DangerRed.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surface),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Lock,
-                                        contentDescription = null,
-                                        tint = if (isHardcoreEnabled) DangerRed else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column {
-                                    Text(
-                                        text = "Hardcore Anti-Tampering",
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = "60-second cooldown delay before modifying limits",
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-
-                            Switch(
-                                checked = isHardcoreEnabled,
-                                onCheckedChange = { enabled ->
-                                    isHardcoreEnabled = enabled
-                                    securityManager.setHardcoreMode(enabled)
-                                },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = MaterialTheme.colorScheme.surface,
-                                    checkedTrackColor = DangerRed
-                                )
-                            )
-                        }
-
-                        if (isHardcoreEnabled) {
-                            Spacer(modifier = Modifier.height(10.dp))
+                // Item 2: Daily Limits (Screen 9)
+                item {
+                    SettingsGroupCard(
+                        icon = Icons.Default.Timer,
+                        iconColor = BrandIndigo,
+                        title = "Daily Limits",
+                        subtitle = "Default 30m limit, midnight reset cycle",
+                        isExpanded = showLimitsSection,
+                        onClick = { showLimitsSection = !showLimitsSection }
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
                             Text(
-                                text = "When enabled, changing daily quotas or removing an app from protection requires entering your security PIN and waiting through a real 60-second friction timer.",
+                                text = "Calendar Day Quotas",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Daily quotas default to 30 minutes per monitored application and automatically reset each local calendar day at midnight (00:00:00). All quota calculations persist across device restarts.",
                                 fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = Neutral400,
                                 lineHeight = 16.sp
                             )
                         }
                     }
                 }
-            }
 
-            // Security PIN Card
-            item {
-                FocusCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.Pin,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column {
+                // Item 3: Hardcore Mode (Screen 9)
+                item {
+                    SettingsGroupCard(
+                        icon = Icons.Default.Lock,
+                        iconColor = DangerRed,
+                        title = "Hardcore Mode",
+                        subtitle = "Extra protection, friction timer & PIN",
+                        isExpanded = showHardcoreSection,
+                        onClick = { showHardcoreSection = !showHardcoreSection }
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "Security PIN Protection",
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
+                                        text = "Anti-Tampering Delay",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color.White
                                     )
                                     Text(
-                                        text = if (hasPin) "PBKDF2 Salted PIN is configured" else "No PIN set",
+                                        text = "Requires 60s cooldown before altering limits",
+                                        fontSize = 11.sp,
+                                        color = Neutral400
+                                    )
+                                }
+                                Switch(
+                                    checked = isHardcoreEnabled,
+                                    onCheckedChange = { enabled ->
+                                        isHardcoreEnabled = enabled
+                                        securityManager.setHardcoreMode(enabled)
+                                    },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = Color.White,
+                                        checkedTrackColor = DangerRed
+                                    )
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // PIN Configuration
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "Security PIN",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color.White
+                                    )
+                                    Text(
+                                        text = if (hasPin) "Salted PBKDF2 PIN Active" else "No PIN configured",
+                                        fontSize = 11.sp,
+                                        color = if (hasPin) SuccessGreen else Neutral400
+                                    )
+                                }
+                                Button(
+                                    onClick = { showPinDialog = !showPinDialog },
+                                    colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated)
+                                ) {
+                                    Text(
+                                        text = if (hasPin) "Change PIN" else "Set PIN",
                                         fontSize = 12.sp,
-                                        color = if (hasPin) SuccessGreen else MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = BrandCyan
                                     )
                                 }
                             }
 
-                            Button(
-                                onClick = { showPinDialog = !showPinDialog },
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface)
-                            ) {
-                                Text(
-                                    text = if (hasPin) "Change PIN" else "Set PIN",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.primary
+                            if (showPinDialog) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                OutlinedTextField(
+                                    value = pinInput,
+                                    onValueChange = { if (it.length <= 6) pinInput = it },
+                                    label = { Text("Enter 4-6 digit PIN", color = Neutral400) },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
                                 )
-                            }
-                        }
-
-                        if (showPinDialog) {
-                            Spacer(modifier = Modifier.height(12.dp))
-                            OutlinedTextField(
-                                value = pinInput,
-                                onValueChange = { if (it.length <= 6) pinInput = it },
-                                label = { Text("Enter 4-6 digit PIN") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Button(
-                                onClick = {
-                                    if (pinInput.length >= 4) {
-                                        securityManager.setPin(pinInput)
-                                        hasPin = true
-                                        showPinDialog = false
-                                        pinInput = ""
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                            ) {
-                                Text(text = "Save Salted PIN", color = MaterialTheme.colorScheme.onPrimary)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Button(
+                                    onClick = {
+                                        if (pinInput.length >= 4) {
+                                            securityManager.setPin(pinInput)
+                                            hasPin = true
+                                            showPinDialog = false
+                                            pinInput = ""
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(containerColor = BrandIndigo)
+                                ) {
+                                    Text(text = "Save Security PIN", color = Color.White)
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            // Daily Reset Policy Card
-            item {
-                FocusCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Timer,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
+                // Item 4: Permissions (Screen 9) -> Navigates to Permission Status Screen
+                item {
+                    SettingsGroupCard(
+                        icon = Icons.Default.Security,
+                        iconColor = SuccessGreen,
+                        title = "Permissions",
+                        subtitle = "Usage access, accessibility service diagnostics",
+                        isExpanded = false,
+                        onClick = onNavigateToPermissions
+                    )
+                }
+
+                // Item 5: Privacy & Data (Screen 9)
+                item {
+                    SettingsGroupCard(
+                        icon = Icons.Default.Storage,
+                        iconColor = BrandCyan,
+                        title = "Privacy & Data",
+                        subtitle = "Local storage, on-device data management",
+                        isExpanded = showPrivacySection,
+                        onClick = { showPrivacySection = !showPrivacySection }
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
                             Text(
-                                text = "Daily Reset Policy",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
+                                text = "100% On-Device Local Storage",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "FocusLock runs completely offline without sending any metrics, telemetry, or app tracking to remote servers. All logs and quotas are stored securely in local SQLite Room database.",
+                                fontSize = 12.sp,
+                                color = Neutral400,
+                                lineHeight = 16.sp
                             )
                         }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "FocusLock operates on your phone's configured local calendar day. Every midnight (00:00:00), daily quotas refresh automatically. Quota state survives device reboots and timezone shifts.",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            lineHeight = 16.sp
-                        )
                     }
                 }
-            }
 
-            // Permission Diagnostics
-            item {
-                Text(
-                    text = "Permission Diagnostics",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-            }
-
-            item {
-                SettingsPermissionRow(
-                    title = "Accessibility Service",
-                    subtitle = "Required to detect when restricted apps transition into the foreground",
-                    onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
-                )
-            }
-
-            item {
-                SettingsPermissionRow(
-                    title = "Usage Access",
-                    subtitle = "Authoritative background usage statistics reconciliation",
-                    onClick = { context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
-                )
-            }
-
-            item {
-                SettingsPermissionRow(
-                    title = "Battery Optimization Exemption",
-                    subtitle = "Prevents aggressive vendor task killers from interrupting monitoring",
-                    onClick = { BatteryOptimizationHelper.requestIgnoreBatteryOptimizations(context) }
-                )
-            }
-
-            // Privacy & Data Management
-            item {
-                Text(
-                    text = "Privacy & Data Storage",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-            }
-
-            item {
-                FocusCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            text = "100% Local-First Architecture",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "FocusLock never transmits your usage data, app list, or keystrokes to any remote servers. All records reside entirely in your device's local Room database.",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            lineHeight = 16.sp
-                        )
+                // Item 6: About FocusLock (Screen 9)
+                item {
+                    SettingsGroupCard(
+                        icon = Icons.Default.Info,
+                        iconColor = Neutral400,
+                        title = "About",
+                        subtitle = "FocusLock Version 1.0.0",
+                        isExpanded = showAboutSection,
+                        onClick = { showAboutSection = !showAboutSection }
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                            Text(
+                                text = "FocusLock — Digital Wellbeing",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Take Back Your Time. Built with modern Kotlin, Jetpack Compose, and Room local persistence.",
+                                fontSize = 12.sp,
+                                color = Neutral400,
+                                lineHeight = 16.sp
+                            )
+                        }
                     }
                 }
-            }
 
-            item {
-                Spacer(modifier = Modifier.height(30.dp))
+                item {
+                    Spacer(modifier = Modifier.height(24.dp))
+                }
             }
         }
     }
 }
 
 @Composable
-fun SettingsPermissionRow(
+private fun SettingsGroupCard(
+    icon: ImageVector,
+    iconColor: Color,
     title: String,
     subtitle: String,
-    onClick: () -> Unit
+    isExpanded: Boolean,
+    onClick: () -> Unit,
+    expandedContent: (@Composable () -> Unit)? = null
 ) {
     FocusCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() },
+        cornerRadius = 16.dp,
+        backgroundColor = DarkSurface,
+        borderColor = DarkBorder,
         contentPadding = 14.dp
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = subtitle,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    lineHeight = 15.sp
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(iconColor.copy(alpha = 0.15f))
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = iconColor,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(14.dp))
+
+                    Column {
+                        Text(
+                            text = title,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = subtitle,
+                            fontSize = 12.sp,
+                            color = Neutral400
+                        )
+                    }
+                }
+
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = Neutral400,
+                    modifier = Modifier.size(20.dp)
                 )
             }
-            Spacer(modifier = Modifier.width(10.dp))
-            Text(
-                text = "OPEN",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
+
+            AnimatedVisibility(visible = isExpanded) {
+                if (expandedContent != null) {
+                    expandedContent()
+                }
+            }
         }
     }
 }

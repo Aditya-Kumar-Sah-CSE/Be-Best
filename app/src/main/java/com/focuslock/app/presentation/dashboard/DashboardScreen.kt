@@ -1,5 +1,7 @@
 package com.focuslock.app.presentation.dashboard
 
+import android.graphics.Bitmap
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,10 +22,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.HourglassTop
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -31,6 +34,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,16 +43,34 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.focuslock.app.R
+import com.focuslock.app.core.designsystem.BrandCyan
 import com.focuslock.app.core.designsystem.BrandIndigo
 import com.focuslock.app.core.designsystem.BrandTeal
+import com.focuslock.app.core.designsystem.BrandViolet
 import com.focuslock.app.core.designsystem.DangerRed
+import com.focuslock.app.core.designsystem.DarkBackground
+import com.focuslock.app.core.designsystem.DarkBorder
+import com.focuslock.app.core.designsystem.DarkBorderSubtle
+import com.focuslock.app.core.designsystem.DarkSurface
+import com.focuslock.app.core.designsystem.DarkSurfaceElevated
 import com.focuslock.app.core.designsystem.FocusCard
+import com.focuslock.app.core.designsystem.FocusLockBottomBar
+import com.focuslock.app.core.designsystem.FocusLockTopBar
+import com.focuslock.app.core.designsystem.Neutral200
+import com.focuslock.app.core.designsystem.Neutral400
+import com.focuslock.app.core.designsystem.Neutral600
 import com.focuslock.app.core.designsystem.SuccessGreen
+import com.focuslock.app.core.designsystem.UsageProgressRing
 import com.focuslock.app.core.designsystem.WarningAmber
 import com.focuslock.app.core.util.TimeUtils
 
@@ -57,6 +79,7 @@ fun DashboardScreen(
     onNavigateToApps: () -> Unit,
     onNavigateToAppDetails: (String) -> Unit,
     onNavigateToFocus: () -> Unit,
+    onNavigateToAnalytics: () -> Unit,
     onNavigateToSettings: () -> Unit,
     viewModel: DashboardViewModel = viewModel()
 ) {
@@ -66,212 +89,429 @@ fun DashboardScreen(
         viewModel.refreshHealth()
     }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(horizontal = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        item {
-            Spacer(modifier = Modifier.height(16.dp))
-            DashboardHeader(
-                onSettingsClick = onNavigateToSettings,
-                isHardcoreActive = uiState.isHardcoreActive
+    Scaffold(
+        containerColor = DarkBackground,
+        bottomBar = {
+            FocusLockBottomBar(
+                currentRoute = "dashboard",
+                onNavigateToHome = { /* Already on dashboard */ },
+                onNavigateToApps = onNavigateToApps,
+                onNavigateToFocus = onNavigateToFocus,
+                onNavigateToAnalytics = onNavigateToAnalytics,
+                onNavigateToSettings = onNavigateToSettings
             )
         }
-
-        // Monitoring Health Diagnostic Banner
-        item {
-            MonitoringStatusCard(
-                health = uiState.protectionHealth,
-                onFixClick = onNavigateToSettings
-            )
-        }
-
-        // Today's Screen Time Hero Metric Card
-        item {
-            TodayUsageHeroCard(
-                totalUsedSeconds = uiState.totalUsedSeconds,
-                totalTimeSaved = uiState.totalTimeSavedSeconds,
-                protectedAppsCount = uiState.protectedAppsCount,
-                blockedCount = uiState.blockedAppsCount,
-                secondsUntilMidnight = uiState.secondsUntilMidnight
-            )
-        }
-
-        // Active Focus Session Banner (if running)
-        if (uiState.activeFocusSession != null) {
+    ) { innerPadding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Screen 4 Top Header: FocusLock logo + Title + Settings gear
             item {
-                ActiveFocusSessionCard(
-                    onFocusClick = onNavigateToFocus
+                Spacer(modifier = Modifier.height(8.dp))
+                FocusLockTopBar(
+                    title = "FocusLock",
+                    showLogo = true,
+                    actionIcon = Icons.Default.Settings,
+                    onActionClick = onNavigateToSettings
                 )
             }
-        }
 
-        // Apps Close to Limit Warning Banner (if any)
-        if (uiState.appsCloseToLimit.isNotEmpty()) {
+            // Health Status banner if monitoring is incomplete
+            if (!uiState.protectionHealth.isFullyProtected) {
+                item {
+                    MonitoringIncompleteBanner(onFixClick = onNavigateToSettings)
+                }
+            }
+
+            // Today's Usage Hero Card (Matching Screen 4)
             item {
-                AppsWarningSection(
-                    warningApps = uiState.appsCloseToLimit,
-                    onAppClick = onNavigateToAppDetails
+                TodayUsageCard(
+                    totalUsedSeconds = uiState.totalUsedSeconds,
+                    totalRemainingSeconds = uiState.totalRemainingSeconds,
+                    dailyLimitSeconds = uiState.totalDailyQuotaSeconds
                 )
             }
-        }
 
-        // Section: Monitored Apps
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
+            // Two Metric Cards side by side: Apps Protected & Time Saved
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Card 1: Apps Protected
+                    MetricSummaryCard(
+                        title = "Apps Protected",
+                        value = "${uiState.protectedAppsCount}",
+                        icon = Icons.Default.Shield,
+                        iconTint = BrandCyan,
+                        modifier = Modifier.weight(1f),
+                        onClick = onNavigateToApps
+                    )
+
+                    // Card 2: Time Saved
+                    val savedSecs = uiState.totalTimeSavedSeconds
+                    val savedFormatted = if (savedSecs != null && savedSecs > 0) {
+                        TimeUtils.formatDurationShort(savedSecs)
+                    } else "0m"
+
+                    MetricSummaryCard(
+                        title = "Time Saved",
+                        value = savedFormatted,
+                        icon = Icons.Default.Timer,
+                        iconTint = SuccessGreen,
+                        modifier = Modifier.weight(1f),
+                        onClick = onNavigateToAnalytics
+                    )
+                }
+            }
+
+            // Active Focus Session Banner (if running)
+            if (uiState.activeFocusSession != null) {
+                item {
+                    ActiveFocusBanner(onFocusClick = onNavigateToFocus)
+                }
+            }
+
+            // Section: Apps Nearing Limit (Screen 4)
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
-                        text = "Monitored Applications",
+                        text = "Apps Nearing Limit",
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
+                        color = Color.White
                     )
-                    Text(
-                        text = "${uiState.appCards.size} apps governed by daily limits",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
 
-                OutlinedButton(
-                    onClick = onNavigateToApps,
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Text(text = "Manage Apps", fontSize = 12.sp)
+                    Text(
+                        text = "View All",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = BrandCyan,
+                        modifier = Modifier
+                            .clickable { onNavigateToApps() }
+                            .padding(vertical = 4.dp)
+                    )
                 }
             }
-        }
 
-        if (uiState.appCards.isEmpty()) {
-            item {
-                FocusCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 12.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+            val warningOrActiveApps = uiState.appsCloseToLimit.ifEmpty { uiState.appCards.take(4) }
+
+            if (warningOrActiveApps.isEmpty()) {
+                item {
+                    FocusCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        cornerRadius = 16.dp,
+                        backgroundColor = DarkSurface
                     ) {
-                        Text(
-                            text = "No applications protected yet",
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Select distracting social media, games, or video apps to enforce limits.",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Button(
-                            onClick = onNavigateToApps,
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Text(text = "Configure Apps", fontSize = 13.sp)
+                            Text(
+                                text = "No applications protected yet",
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Add distracting social media and games to track & limit.",
+                                fontSize = 12.sp,
+                                color = Neutral400
+                            )
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Button(
+                                onClick = onNavigateToApps,
+                                colors = ButtonDefaults.buttonColors(containerColor = BrandIndigo),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text(text = "Protect Apps", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
+            } else {
+                items(warningOrActiveApps, key = { it.packageName }) { appItem ->
+                    NearingLimitAppRow(
+                        item = appItem,
+                        onClick = { onNavigateToAppDetails(appItem.packageName) }
+                    )
+                }
             }
-        } else {
-            items(uiState.appCards, key = { it.packageName }) { appItem ->
-                DashboardAppRow(
-                    item = appItem,
-                    onClick = { onNavigateToAppDetails(appItem.packageName) }
-                )
-            }
-        }
 
-        item {
-            Spacer(modifier = Modifier.height(30.dp))
+            item {
+                Spacer(modifier = Modifier.height(24.dp))
+            }
         }
     }
 }
 
+/**
+ * Today's Usage Card matching Screen 4 of reference mockup
+ */
 @Composable
-fun DashboardHeader(
-    onSettingsClick: () -> Unit,
-    isHardcoreActive: Boolean
+private fun TodayUsageCard(
+    totalUsedSeconds: Long,
+    totalRemainingSeconds: Long,
+    dailyLimitSeconds: Long
 ) {
-    Row(
+    val effectiveLimit = if (dailyLimitSeconds > 0) dailyLimitSeconds else 1800L
+    val progress = (totalUsedSeconds.toFloat() / effectiveLimit.toFloat()).coerceIn(0f, 1f)
+
+    FocusCard(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        cornerRadius = 22.dp,
+        backgroundColor = DarkSurface,
+        borderColor = DarkBorder,
+        contentPadding = 18.dp
     ) {
-        Column {
+        Column(modifier = Modifier.fillMaxWidth()) {
             Text(
-                text = "FocusLock",
-                fontSize = 24.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onBackground
+                text = "Today's Usage",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
             )
-            Text(
-                text = "Digital Wellbeing & Quota Enforcement",
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (isHardcoreActive) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(DangerRed.copy(alpha = 0.15f))
-                        .border(1.dp, DangerRed.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
-                        .padding(horizontal = 8.dp, vertical = 3.dp)
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Circular Progress Ring on Left
+                UsageProgressRing(
+                    progress = progress,
+                    size = 114.dp,
+                    strokeWidth = 10.dp,
+                    progressColor = BrandCyan
                 ) {
-                    Text(
-                        text = "HARDCORE",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = DangerRed
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = TimeUtils.formatDurationShort(totalUsedSeconds),
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Total",
+                            fontSize = 11.sp,
+                            color = Neutral400
+                        )
+                    }
                 }
-                Spacer(modifier = Modifier.width(8.dp))
-            }
 
+                Spacer(modifier = Modifier.width(20.dp))
+
+                // Stats on Right
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Column {
+                        Text(
+                            text = TimeUtils.formatDurationShort(totalRemainingSeconds),
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Remaining",
+                            fontSize = 12.sp,
+                            color = Neutral400
+                        )
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(DarkSurfaceElevated)
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(BrandCyan)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Daily Limit: ${TimeUtils.formatDurationShort(effectiveLimit)}",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Neutral200
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Metric Summary Card (Screen 4)
+ */
+@Composable
+private fun MetricSummaryCard(
+    title: String,
+    value: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    iconTint: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    FocusCard(
+        modifier = modifier
+            .clip(RoundedCornerShape(18.dp))
+            .clickable { onClick() },
+        cornerRadius = 18.dp,
+        backgroundColor = DarkSurface,
+        borderColor = DarkBorder,
+        contentPadding = 14.dp
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .clickable { onSettingsClick() }
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(iconTint.copy(alpha = 0.15f))
             ) {
                 Icon(
-                    imageVector = Icons.Default.Security,
-                    contentDescription = "Settings",
-                    tint = MaterialTheme.colorScheme.primary,
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = iconTint,
                     modifier = Modifier.size(20.dp)
                 )
             }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Text(
+                text = title,
+                fontSize = 12.sp,
+                color = Neutral400
+            )
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            Text(
+                text = value,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color.White
+            )
+        }
+    }
+}
+
+/**
+ * App Row in "Apps Nearing Limit" section (Screen 4)
+ */
+@Composable
+private fun NearingLimitAppRow(
+    item: DashboardCardItem,
+    onClick: () -> Unit
+) {
+    FocusCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        cornerRadius = 16.dp,
+        backgroundColor = DarkSurface,
+        borderColor = if (item.isBlocked) DangerRed.copy(alpha = 0.35f) else DarkBorder,
+        contentPadding = 14.dp
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    if (item.appIcon != null) {
+                        val bitmap = item.appIcon.toBitmap(64, 64, Bitmap.Config.ARGB_8888)
+                        Image(
+                            bitmap = bitmap.asImageBitmap(),
+                            contentDescription = item.displayName,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                        )
+                    } else {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(DarkSurfaceElevated)
+                        ) {
+                            Text(
+                                text = item.displayName.take(1).uppercase(),
+                                fontWeight = FontWeight.Bold,
+                                color = BrandCyan,
+                                fontSize = 14.sp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Text(
+                        text = item.displayName,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White
+                    )
+                }
+
+                Text(
+                    text = "${TimeUtils.formatDurationShort(item.usedSeconds)} / ${TimeUtils.formatDurationShort(item.quotaSeconds)}",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (item.isBlocked) DangerRed else Neutral200
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            LinearProgressIndicator(
+                progress = { item.progressFraction },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(5.dp)
+                    .clip(RoundedCornerShape(3.dp)),
+                color = if (item.isBlocked) DangerRed else if (item.progressFraction > 0.75f) WarningAmber else BrandCyan,
+                trackColor = DarkBorderSubtle,
+                strokeCap = StrokeCap.Round
+            )
         }
     }
 }
 
 @Composable
-fun MonitoringStatusCard(
-    health: com.focuslock.app.domain.model.ProtectionHealth,
-    onFixClick: () -> Unit
-) {
-    val isGood = health.isFullyProtected
-    val bgColor = if (isGood) SuccessGreen.copy(alpha = 0.12f) else WarningAmber.copy(alpha = 0.14f)
-    val strokeColor = if (isGood) SuccessGreen.copy(alpha = 0.35f) else WarningAmber.copy(alpha = 0.4f)
-
+private fun MonitoringIncompleteBanner(onFixClick: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(bgColor)
-            .border(1.dp, strokeColor, RoundedCornerShape(14.dp))
-            .clickable { if (!isGood) onFixClick() }
+            .background(WarningAmber.copy(alpha = 0.12f))
+            .border(1.dp, WarningAmber.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
+            .clickable { onFixClick() }
             .padding(14.dp)
     ) {
         Row(
@@ -284,158 +524,44 @@ fun MonitoringStatusCard(
                 modifier = Modifier.weight(1f)
             ) {
                 Icon(
-                    imageVector = if (isGood) Icons.Default.Shield else Icons.Default.Warning,
+                    imageVector = Icons.Default.Warning,
                     contentDescription = null,
-                    tint = if (isGood) SuccessGreen else WarningAmber,
-                    modifier = Modifier.size(22.dp)
+                    tint = WarningAmber,
+                    modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Column {
                     Text(
-                        text = if (isGood) "Active Protection Synchronized" else "Monitoring Incomplete",
+                        text = "Monitoring Setup Required",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = Color.White
                     )
                     Text(
-                        text = if (isGood) "Usage Access & Accessibility Service active"
-                        else "Enable Accessibility or Usage Access to enforce limits",
+                        text = "Enable Usage Access & Accessibility to enforce quotas.",
                         fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = Neutral400
                     )
                 }
             }
-
-            if (!isGood) {
-                Text(
-                    text = "FIX",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = WarningAmber
-                )
-            }
+            Text(
+                text = "FIX",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = WarningAmber
+            )
         }
     }
 }
 
 @Composable
-fun TodayUsageHeroCard(
-    totalUsedSeconds: Long,
-    totalTimeSaved: Long?,
-    protectedAppsCount: Int,
-    blockedCount: Int,
-    secondsUntilMidnight: Long
-) {
-    FocusCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "CONTROLLED SCREEN TIME",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp,
-                    color = MaterialTheme.colorScheme.primary
-                )
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.HourglassTop,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(13.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Reset in ${TimeUtils.formatCountdown(secondsUntilMidnight)}",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = TimeUtils.formatDurationShort(totalUsedSeconds),
-                        fontSize = 32.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = if (totalTimeSaved != null) "Saved ${TimeUtils.formatDurationShort(totalTimeSaved)} under limits"
-                        else "Across $protectedAppsCount protected applications",
-                        fontSize = 12.sp,
-                        color = if (totalTimeSaved != null) BrandTeal else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(if (blockedCount > 0) DangerRed.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface)
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = "$blockedCount",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (blockedCount > 0) DangerRed else MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = "Blocked",
-                                fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(MaterialTheme.colorScheme.surface)
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = "$protectedAppsCount",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = "Protected",
-                                fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun ActiveFocusSessionCard(onFocusClick: () -> Unit) {
+private fun ActiveFocusBanner(onFocusClick: () -> Unit) {
     FocusCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onFocusClick() },
-        backgroundColor = MaterialTheme.colorScheme.primaryContainer
+        backgroundColor = BrandIndigo.copy(alpha = 0.25f),
+        borderColor = BrandIndigo.copy(alpha = 0.6f)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -447,142 +573,18 @@ fun ActiveFocusSessionCard(onFocusClick: () -> Unit) {
                     text = "Focus Session in Progress",
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                    color = Color.White
                 )
                 Text(
                     text = "Protected distractions are actively restricted.",
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                    color = BrandCyan
                 )
             }
             Icon(
                 imageVector = Icons.Default.PlayArrow,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-        }
-    }
-}
-
-@Composable
-fun AppsWarningSection(
-    warningApps: List<DashboardCardItem>,
-    onAppClick: (String) -> Unit
-) {
-    FocusCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.Warning,
-                    contentDescription = null,
-                    tint = WarningAmber,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "Apps Near or At Daily Limit",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            warningApps.take(3).forEach { item ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onAppClick(item.packageName) }
-                        .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = item.displayName,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = if (item.isBlocked) "Blocked" else "${TimeUtils.formatDurationShort(item.remainingSeconds)} left",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (item.isBlocked) DangerRed else WarningAmber
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun DashboardAppRow(
-    item: DashboardCardItem,
-    onClick: () -> Unit
-) {
-    FocusCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() },
-        cornerRadius = 14.dp,
-        contentPadding = 14.dp
-    ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = item.displayName,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = item.category,
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                if (item.isBlocked) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(DangerRed.copy(alpha = 0.15f))
-                            .padding(horizontal = 8.dp, vertical = 3.dp)
-                    ) {
-                        Text(
-                            text = "BLOCKED",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = DangerRed
-                        )
-                    }
-                } else {
-                    Text(
-                        text = "${TimeUtils.formatDurationShort(item.remainingSeconds)} left",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = BrandTeal
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            LinearProgressIndicator(
-                progress = { item.progressFraction },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(5.dp)
-                    .clip(RoundedCornerShape(3.dp)),
-                color = if (item.isBlocked) DangerRed else MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.outlineVariant,
-                strokeCap = StrokeCap.Round
+                tint = Color.White
             )
         }
     }

@@ -6,6 +6,12 @@ import android.graphics.drawable.Drawable
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -30,8 +36,8 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.SpaceDashboard
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -43,6 +49,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
@@ -50,9 +58,18 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
+import com.focuslock.app.core.designsystem.AnimatedPrimaryButton
+import com.focuslock.app.core.designsystem.BrandCyan
 import com.focuslock.app.core.designsystem.BrandIndigo
-import com.focuslock.app.core.designsystem.BrandTeal
+import com.focuslock.app.core.designsystem.DangerRed
+import com.focuslock.app.core.designsystem.DarkBackground
+import com.focuslock.app.core.designsystem.DarkBorderSubtle
+import com.focuslock.app.core.designsystem.DarkSurfaceElevated
 import com.focuslock.app.core.designsystem.FocusLockTheme
+import com.focuslock.app.core.designsystem.Neutral200
+import com.focuslock.app.core.designsystem.Neutral400
+import com.focuslock.app.core.designsystem.Neutral600
+import com.focuslock.app.core.designsystem.PrimaryGradient
 import com.focuslock.app.core.util.TimeUtils
 import kotlinx.coroutines.delay
 
@@ -62,7 +79,7 @@ class BlockingActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         val packageName = intent.getStringExtra(EXTRA_PACKAGE_NAME) ?: ""
-        val appName = intent.getStringExtra(EXTRA_APP_NAME) ?: "Selected Application"
+        val appName = intent.getStringExtra(EXTRA_APP_NAME) ?: "Protected App"
 
         val appIcon: Drawable? = try {
             if (packageName.isNotBlank()) packageManager.getApplicationIcon(packageName) else null
@@ -114,6 +131,7 @@ fun BlockingScreen(
         mutableLongStateOf(TimeUtils.getSecondsUntilNextMidnight())
     }
 
+    // Dynamic 1-second countdown pulse until next local calendar midnight
     LaunchedEffect(Unit) {
         while (true) {
             delay(1000L)
@@ -121,166 +139,201 @@ fun BlockingScreen(
         }
     }
 
+    // Subtle gentle breathing pulse on the coral lock ring
+    val infiniteTransition = rememberInfiniteTransition(label = "blocking_pulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 0.98f,
+        targetValue = 1.02f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse_scale"
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF090A0F))
+            .background(DarkBackground)
             .statusBarsPadding()
             .navigationBarsPadding()
-            .padding(horizontal = 24.dp, vertical = 24.dp)
+            .padding(horizontal = 24.dp, vertical = 20.dp)
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            // Upper Lock Icon and App Identity
+            // Upper App Identity & Warning
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                // Padlock Badge
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(80.dp)
-                        .clip(RoundedCornerShape(26.dp))
-                        .background(BrandIndigo)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = "App Blocked",
-                        tint = Color.White,
-                        modifier = Modifier.size(36.dp)
+                // App Icon
+                if (appIcon != null) {
+                    val bitmap = appIcon.toBitmap(80, 80, Bitmap.Config.ARGB_8888)
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = appName,
+                        modifier = Modifier
+                            .size(68.dp)
+                            .clip(RoundedCornerShape(18.dp))
                     )
+                } else {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(68.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(DarkSurfaceElevated)
+                    ) {
+                        Text(
+                            text = appName.take(1).uppercase(),
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = BrandCyan
+                        )
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
+                // Title: Daily Limit Reached (Screen 7)
                 Text(
-                    text = "Daily Limit Exhausted",
+                    text = "Daily Limit Reached",
                     fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.ExtraBold,
                     color = Color.White,
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
-                // Blocked App Row
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                ) {
-                    if (appIcon != null) {
-                        val bitmap = appIcon.toBitmap(64, 64, Bitmap.Config.ARGB_8888)
-                        Image(
-                            bitmap = bitmap.asImageBitmap(),
-                            contentDescription = appName,
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                    }
-                    Text(
-                        text = appName,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFFCBD5E1)
-                    )
-                }
+                Text(
+                    text = appName,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = BrandCyan,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = "You've used today's allotted allowance.",
+                    fontSize = 13.sp,
+                    color = Neutral400,
+                    textAlign = TextAlign.Center
+                )
 
                 Spacer(modifier = Modifier.height(36.dp))
 
-                // Motivational Text
-                Text(
-                    text = "Stay focused!\nYour future self will thank you.",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 28.sp
-                )
+                // Screen 7: Circular Warning Ring with Padlock & Midnight Countdown
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(170.dp)
+                        .scale(pulseScale)
+                ) {
+                    // Outer subtle danger glow
+                    Box(
+                        modifier = Modifier
+                            .size(168.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.radialGradient(
+                                    listOf(DangerRed.copy(alpha = 0.25f), Color.Transparent)
+                                )
+                            )
+                    )
+
+                    // Coral Red Progress Ring
+                    CircularProgressIndicator(
+                        progress = { 1f },
+                        modifier = Modifier.size(150.dp),
+                        color = DangerRed,
+                        strokeWidth = 6.dp,
+                        trackColor = Color.Transparent
+                    )
+
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = "Locked",
+                            tint = DangerRed,
+                            modifier = Modifier.size(28.dp)
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(
+                            text = "Unlocks in",
+                            fontSize = 11.sp,
+                            color = Neutral400
+                        )
+
+                        Spacer(modifier = Modifier.height(2.dp))
+
+                        Text(
+                            text = TimeUtils.formatCountdown(secondsUntilMidnight),
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White,
+                            letterSpacing = 1.sp
+                        )
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // Live Midnight Countdown Pill
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50.dp))
-                        .background(Color(0xFF131722))
-                        .border(1.dp, Color(0xFF262E44), RoundedCornerShape(50.dp))
-                        .padding(horizontal = 20.dp, vertical = 10.dp)
-                ) {
-                    Text(
-                        text = "Allowance resets in ${TimeUtils.formatCountdown(secondsUntilMidnight)}",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = BrandTeal
-                    )
-                }
+                Text(
+                    text = "Come back tomorrow for a fresh start.",
+                    fontSize = 13.sp,
+                    color = Neutral400,
+                    textAlign = TextAlign.Center
+                )
             }
 
-            // Bottom Actions Section
+            // Screen 7: Bottom Action Buttons
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp)
             ) {
-                Text(
-                    text = "This application is restricted because today's screen time quota was consumed. Your allowance will automatically refresh at midnight.",
-                    fontSize = 12.sp,
-                    color = Color(0xFF64748B),
-                    textAlign = TextAlign.Center,
-                    lineHeight = 17.sp,
-                    modifier = Modifier.padding(horizontal = 16.dp)
+                // Button 1: Go to Home (Gradient Button)
+                AnimatedPrimaryButton(
+                    text = "Go to Home",
+                    icon = Icons.Default.Home,
+                    onClick = onGoHome,
+                    modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                // Button 2: View Today's Progress (Outlined/Tonal Button)
+                OutlinedButton(
+                    onClick = onOpenDashboard,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorderSubtle),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = Neutral200
+                    )
                 ) {
-                    Button(
-                        onClick = onGoHome,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(50.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF1E2230),
-                            contentColor = Color.White
-                        )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Home,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.size(8.dp))
-                        Text(text = "Go to Home", fontWeight = FontWeight.SemiBold)
-                    }
-
-                    OutlinedButton(
-                        onClick = onOpenDashboard,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(50.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, BrandTeal.copy(alpha = 0.5f)),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = BrandTeal
-                        )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.SpaceDashboard,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.size(8.dp))
-                        Text(text = "Dashboard", fontWeight = FontWeight.SemiBold)
-                    }
+                    Icon(
+                        imageVector = Icons.Default.SpaceDashboard,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = BrandCyan
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "View Today's Progress",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
         }

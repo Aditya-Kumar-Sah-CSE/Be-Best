@@ -1,0 +1,93 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="220dp"
+    android:height="150dp"
+    android:viewportWidth="220"
+    android:viewportHeight="150">
+
+    <!-- Ambient Glow / Aura behind character -->
+    <path
+        android:pathData="M110,75m-65,0a65,65 0 1,0 130,0a65,65 0 1,0 -130,0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="110"
+                android:centerY="75"
+                android:gradientRadius="65"
+                android:startColor="#2638BDF8"
+                android:endColor="#00000000"
+                android:type="radial" />
+        </aapt:attr>
+    </path>
+
+    <!-- Stylized Plant Leaves - Left -->
+    <path
+        android:pathData="M48,110 C40,90 48,70 65,65 C62,80 58,98 48,110 Z"
+        android:fillColor="#10B981"
+        android:fillAlpha="0.6" />
+    <path
+        android:pathData="M38,115 C30,100 32,85 45,82 C42,95 40,105 38,115 Z"
+        android:fillColor="#34D399"
+        android:fillAlpha="0.4" />
+
+    <!-- Stylized Plant Leaves - Right -->
+    <path
+        android:pathData="M172,110 C180,90 172,70 155,65 C158,80 162,98 172,110 Z"
+        android:fillColor="#10B981"
+        android:fillAlpha="0.6" />
+    <path
+        android:pathData="M182,115 C190,100 188,85 175,82 C178,95 180,105 182,115 Z"
+        android:fillColor="#34D399"
+        android:fillAlpha="0.4" />
+
+    <!-- Desk / Work Surface -->
+    <path
+        android:pathData="M30,122 L190,122 L190,125 C190,127 188,129 186,129 L34,129 C32,129 30,127 30,125 Z"
+        android:fillColor="#1E293B" />
+
+    <!-- Person Torso / Blue Shirt -->
+    <path
+        android:pathData="M92,85 C92,72 128,72 128,85 L134,120 L86,120 Z"
+        android:fillColor="#38BDF8" />
+
+    <!-- Collar / Neck -->
+    <path
+        android:pathData="M104,70 L116,70 L114,78 L106,78 Z"
+        android:fillColor="#FBCFE8" />
+
+    <!-- Head -->
+    <path
+        android:pathData="M110,60m-14,0a14,14 0 1,0 28,0a14,14 0 1,0 -28,0"
+        android:fillColor="#FBCFE8" />
+
+    <!-- Hair (Dark modern cut) -->
+    <path
+        android:pathData="M96,58 C96,48 102,46 114,46 C124,46 126,52 124,58 C120,53 116,52 110,52 C104,52 98,54 96,58 Z"
+        android:fillColor="#0F172A" />
+
+    <!-- Laptop Base -->
+    <path
+        android:pathData="M85,120 L135,120 L130,118 L90,118 Z"
+        android:fillColor="#94A3B8" />
+
+    <!-- Laptop Screen angled -->
+    <path
+        android:pathData="M92,95 L128,95 L132,118 L88,118 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:angle="90"
+                android:startColor="#6366F1"
+                android:endColor="#818CF8"
+                android:type="linear" />
+        </aapt:attr>
+    </path>
+
+    <!-- Laptop Screen Glow on User Face -->
+    <path
+        android:pathData="M100,80 L120,80 L115,70 L105,70 Z"
+        android:fillColor="#80FFFFFF" />
+
+    <!-- Mug on desk -->
+    <path
+        android:pathData="M150,114 L156,114 C157,114 158,115 158,116 L157,122 L149,122 L148,116 C148,115 149,114 150,114 Z"
+        android:fillColor="#8B5CF6" />
+</vector>

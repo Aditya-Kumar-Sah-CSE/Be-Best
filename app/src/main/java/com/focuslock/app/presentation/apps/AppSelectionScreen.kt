@@ -3,7 +3,6 @@ package com.focuslock.app.presentation.apps
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,10 +21,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -39,6 +40,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -60,9 +62,24 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.focuslock.app.core.designsystem.AnimatedPrimaryButton
+import com.focuslock.app.core.designsystem.BrandCyan
+import com.focuslock.app.core.designsystem.BrandIndigo
 import com.focuslock.app.core.designsystem.BrandTeal
 import com.focuslock.app.core.designsystem.DangerRed
+import com.focuslock.app.core.designsystem.DarkBackground
+import com.focuslock.app.core.designsystem.DarkBorder
+import com.focuslock.app.core.designsystem.DarkBorderSubtle
+import com.focuslock.app.core.designsystem.DarkSurface
+import com.focuslock.app.core.designsystem.DarkSurfaceElevated
+import com.focuslock.app.core.designsystem.EmptyState
 import com.focuslock.app.core.designsystem.FocusCard
+import com.focuslock.app.core.designsystem.FocusLockBottomBar
+import com.focuslock.app.core.designsystem.FocusLockTopBar
+import com.focuslock.app.core.designsystem.Neutral200
+import com.focuslock.app.core.designsystem.Neutral400
+import com.focuslock.app.core.designsystem.Neutral600
+import com.focuslock.app.core.designsystem.WarningAmber
 import com.focuslock.app.core.util.TimeUtils
 import com.focuslock.app.domain.model.AppCategory
 
@@ -70,210 +87,200 @@ import com.focuslock.app.domain.model.AppCategory
 fun AppSelectionScreen(
     onBack: () -> Unit,
     onNavigateToDetails: (String) -> Unit,
+    showBottomBar: Boolean = false,
+    onNavigateToHome: () -> Unit = {},
+    onNavigateToFocus: () -> Unit = {},
+    onNavigateToAnalytics: () -> Unit = {},
+    onNavigateToSettings: () -> Unit = {},
     viewModel: AppSelectionViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showSortMenu by remember { mutableStateOf(false) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(horizontal = 20.dp)
-    ) {
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Top App Bar
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = MaterialTheme.colorScheme.onBackground
+    Scaffold(
+        containerColor = DarkBackground,
+        bottomBar = {
+            if (showBottomBar) {
+                FocusLockBottomBar(
+                    currentRoute = "apps",
+                    onNavigateToHome = onNavigateToHome,
+                    onNavigateToApps = { /* Already on apps */ },
+                    onNavigateToFocus = onNavigateToFocus,
+                    onNavigateToAnalytics = onNavigateToAnalytics,
+                    onNavigateToSettings = onNavigateToSettings
                 )
-            }
-            Spacer(modifier = Modifier.width(6.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Protected Applications",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                Text(
-                    text = "${uiState.allApps.count { it.item.isProtected }} apps monitored under daily limits",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            Box {
-                IconButton(onClick = { showSortMenu = true }) {
-                    Icon(
-                        imageVector = Icons.Default.Sort,
-                        contentDescription = "Sort order",
-                        tint = MaterialTheme.colorScheme.onBackground
-                    )
-                }
-
-                DropdownMenu(
-                    expanded = showSortMenu,
-                    onDismissRequest = { showSortMenu = false }
-                ) {
-                    AppSortOrder.entries.forEach { order ->
-                        DropdownMenuItem(
-                            text = { Text(order.title) },
-                            onClick = {
-                                viewModel.onSortOrderSelected(order)
-                                showSortMenu = false
-                            }
-                        )
-                    }
-                }
             }
         }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Search Field
-        OutlinedTextField(
-            value = uiState.searchQuery,
-            onValueChange = { viewModel.onSearchQueryChanged(it) },
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Search installed applications...", color = MaterialTheme.colorScheme.outline) },
-            leadingIcon = {
-                Icon(imageVector = Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.outline)
-            },
-            shape = RoundedCornerShape(14.dp),
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = MaterialTheme.colorScheme.surface,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                focusedIndicatorColor = MaterialTheme.colorScheme.primary,
-                unfocusedIndicatorColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-            ),
-            singleLine = true
-        )
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // Category Filter Chips
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth()
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 20.dp)
         ) {
-            item {
-                FilterChip(
-                    selected = uiState.selectedCategory == null,
-                    onClick = { viewModel.onCategorySelected(null) },
-                    label = { Text("All (${uiState.allApps.size})") },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primary,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        labelColor = MaterialTheme.colorScheme.onSurface
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Screen 5 Top Bar: Back arrow, "Protected Apps", 3-dots sort menu
+            FocusLockTopBar(
+                title = "Protected Apps",
+                navigationIcon = if (!showBottomBar) Icons.AutoMirrored.Filled.ArrowBack else null,
+                onNavigationClick = onBack,
+                actionIcon = Icons.AutoMirrored.Filled.Sort,
+                onActionClick = { showSortMenu = true }
+            )
+
+            // Dropdown Menu for Sorting
+            DropdownMenu(
+                expanded = showSortMenu,
+                onDismissRequest = { showSortMenu = false },
+                modifier = Modifier.background(DarkSurfaceElevated)
+            ) {
+                AppSortOrder.entries.forEach { order ->
+                    DropdownMenuItem(
+                        text = { Text(order.title, color = Color.White) },
+                        onClick = {
+                            viewModel.onSortOrderSelected(order)
+                            showSortMenu = false
+                        }
                     )
-                )
+                }
             }
-            items(AppCategory.entries) { category ->
-                val count = uiState.allApps.count { it.item.category == category }
-                if (count > 0) {
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Search Bar: "Search apps..." (Screen 5)
+            OutlinedTextField(
+                value = uiState.searchQuery,
+                onValueChange = { viewModel.onSearchQueryChanged(it) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                placeholder = { Text("Search apps...", color = Neutral400, fontSize = 14.sp) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null,
+                        tint = Neutral400,
+                        modifier = Modifier.size(20.dp)
+                    )
+                },
+                shape = RoundedCornerShape(14.dp),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = DarkSurface,
+                    unfocusedContainerColor = DarkSurface,
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                    focusedIndicatorColor = BrandCyan,
+                    unfocusedIndicatorColor = DarkBorder
+                ),
+                singleLine = true
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Filter Chips: All, Social, Video, Game, Other (Screen 5)
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                item {
+                    FilterChip(
+                        selected = uiState.selectedCategory == null,
+                        onClick = { viewModel.onCategorySelected(null) },
+                        label = { Text("All", fontSize = 12.sp) },
+                        shape = RoundedCornerShape(20.dp),
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = BrandIndigo,
+                            selectedLabelColor = Color.White,
+                            containerColor = DarkSurface,
+                            labelColor = Neutral400
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = uiState.selectedCategory == null,
+                            borderColor = DarkBorder,
+                            selectedBorderColor = BrandIndigo
+                        )
+                    )
+                }
+
+                items(AppCategory.entries) { category ->
                     FilterChip(
                         selected = uiState.selectedCategory == category,
                         onClick = { viewModel.onCategorySelected(category) },
-                        label = { Text("${category.title} ($count)") },
+                        label = { Text(category.title, fontSize = 12.sp) },
+                        shape = RoundedCornerShape(20.dp),
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                            containerColor = MaterialTheme.colorScheme.surface,
-                            labelColor = MaterialTheme.colorScheme.onSurface
+                            selectedContainerColor = BrandIndigo,
+                            selectedLabelColor = Color.White,
+                            containerColor = DarkSurface,
+                            labelColor = Neutral400
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = uiState.selectedCategory == category,
+                            borderColor = DarkBorder,
+                            selectedBorderColor = BrandIndigo
                         )
                     )
                 }
             }
-        }
 
-        Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-        // Distraction Quick Actions Banner
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Button(
-                onClick = { viewModel.selectAllSuggestedDistractions() },
-                modifier = Modifier.weight(1.4f),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            ) {
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(text = "Protect ${uiState.suggestedCount} Suggested", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            }
-
-            OutlinedButton(
-                onClick = { viewModel.deselectAll() },
-                modifier = Modifier.weight(0.8f),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text(text = "Deselect All", fontSize = 12.sp)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // App List
-        if (uiState.isLoading) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-            }
-        } else if (uiState.filteredApps.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "No applications match your filter.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 14.sp
-                )
-            }
-        } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                items(uiState.filteredApps, key = { it.item.packageName }) { appModel ->
-                    AppRowCard(
-                        model = appModel,
-                        onToggle = { viewModel.toggleAppProtection(appModel.item) },
-                        onClick = { onNavigateToDetails(appModel.item.packageName) }
-                    )
+            // App List
+            if (uiState.isLoading) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = BrandCyan, strokeWidth = 3.dp)
                 }
-                item {
-                    Spacer(modifier = Modifier.height(30.dp))
+            } else if (uiState.filteredApps.isEmpty()) {
+                EmptyState(
+                    message = "No matching applications found",
+                    subMessage = "Try searching by a different name or clearing filters."
+                )
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    items(uiState.filteredApps, key = { it.item.packageName }) { appModel ->
+                        AppListItemRow(
+                            model = appModel,
+                            onToggle = { viewModel.toggleAppProtection(appModel.item) },
+                            onClick = { onNavigateToDetails(appModel.item.packageName) }
+                        )
+                    }
+
+                    item {
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+                }
+
+                // Bottom Button: "+ Protect Suggested" or "+ Add Apps"
+                if (uiState.suggestedCount > 0) {
+                    AnimatedPrimaryButton(
+                        text = "+ Protect ${uiState.suggestedCount} Suggested Distractions",
+                        onClick = { viewModel.selectAllSuggestedDistractions() },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp)
+                    )
                 }
             }
         }
     }
 }
 
+/**
+ * Screen 5 App Row Card
+ */
 @Composable
-fun AppRowCard(
+private fun AppListItemRow(
     model: AppItemUiModel,
     onToggle: () -> Unit,
     onClick: () -> Unit
@@ -282,9 +289,10 @@ fun AppRowCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() },
-        cornerRadius = 14.dp,
-        backgroundColor = if (model.item.isProtected) MaterialTheme.colorScheme.surfaceVariant
-        else MaterialTheme.colorScheme.surface
+        cornerRadius = 16.dp,
+        backgroundColor = DarkSurface,
+        borderColor = if (model.isBlocked) DangerRed.copy(alpha = 0.4f) else DarkBorder,
+        contentPadding = 14.dp
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
@@ -297,27 +305,27 @@ fun AppRowCard(
                     modifier = Modifier.weight(1f)
                 ) {
                     if (model.item.icon != null) {
-                        val bitmap = model.item.icon.toBitmap(80, 80, Bitmap.Config.ARGB_8888)
+                        val bitmap = model.item.icon.toBitmap(64, 64, Bitmap.Config.ARGB_8888)
                         Image(
                             bitmap = bitmap.asImageBitmap(),
                             contentDescription = model.item.appName,
                             modifier = Modifier
-                                .size(42.dp)
+                                .size(40.dp)
                                 .clip(RoundedCornerShape(10.dp))
                         )
                     } else {
                         Box(
+                            contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .size(42.dp)
+                                .size(40.dp)
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(MaterialTheme.colorScheme.primaryContainer),
-                            contentAlignment = Alignment.Center
+                                .background(DarkSurfaceElevated)
                         ) {
                             Text(
                                 text = model.item.appName.take(1).uppercase(),
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                fontSize = 16.sp
+                                color = BrandCyan,
+                                fontSize = 15.sp
                             )
                         }
                     }
@@ -329,42 +337,35 @@ fun AppRowCard(
                             text = model.item.appName,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = Color.White
                         )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = model.item.category.title,
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            if (model.isBlocked) {
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(DangerRed.copy(alpha = 0.15f))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        text = "EXHAUSTED",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = DangerRed
-                                    )
-                                }
-                            }
-                        }
+                        Text(
+                            text = model.item.category.title,
+                            fontSize = 12.sp,
+                            color = Neutral400
+                        )
                     }
                 }
 
-                Switch(
-                    checked = model.item.isProtected,
-                    onCheckedChange = { onToggle() },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = MaterialTheme.colorScheme.surface,
-                        checkedTrackColor = MaterialTheme.colorScheme.primary
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "${TimeUtils.formatDurationShort(model.usedSecondsToday)} / ${TimeUtils.formatDurationShort(model.item.dailyLimitSeconds)}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (model.isBlocked) DangerRed else Neutral200
                     )
-                )
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Switch(
+                        checked = model.item.isProtected,
+                        onCheckedChange = { onToggle() },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = BrandCyan
+                        )
+                    )
+                }
             }
 
             if (model.item.isProtected) {
@@ -376,30 +377,10 @@ fun AppRowCard(
                         .fillMaxWidth()
                         .height(5.dp)
                         .clip(RoundedCornerShape(3.dp)),
-                    color = if (model.isBlocked) DangerRed else MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.outlineVariant,
+                    color = if (model.isBlocked) DangerRed else if (model.progressFraction > 0.8f) WarningAmber else BrandCyan,
+                    trackColor = DarkBorderSubtle,
                     strokeCap = StrokeCap.Round
                 )
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = "${TimeUtils.formatDurationShort(model.usedSecondsToday)} used",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = if (model.isBlocked) "Limit exhausted (resets midnight)"
-                        else "${TimeUtils.formatDurationShort(model.remainingSeconds)} remaining",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = if (model.isBlocked) DangerRed else BrandTeal
-                    )
-                }
             }
         }
     }

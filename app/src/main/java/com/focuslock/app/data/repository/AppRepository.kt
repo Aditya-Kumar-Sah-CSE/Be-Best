@@ -23,6 +23,7 @@ data class InstalledAppItem(
 
 interface AppRepository {
     fun getProtectedAppsFlow(): Flow<List<ProtectedAppEntity>>
+    suspend fun getActiveProtectedApps(): List<ProtectedAppEntity>
     suspend fun getInstalledLaunchableApps(): List<InstalledAppItem>
     suspend fun setAppProtection(packageName: String, appName: String, enabled: Boolean, limitSeconds: Long, category: AppCategory)
     suspend fun updateAppLimit(packageName: String, limitSeconds: Long)
@@ -41,6 +42,10 @@ class AppRepositoryImpl(
 
     override fun getProtectedAppsFlow(): Flow<List<ProtectedAppEntity>> {
         return dao.getAllProtectedAppsFlow()
+    }
+
+    override suspend fun getActiveProtectedApps(): List<ProtectedAppEntity> = withContext(Dispatchers.IO) {
+        dao.getActiveProtectedApps()
     }
 
     override suspend fun getInstalledLaunchableApps(): List<InstalledAppItem> = withContext(Dispatchers.IO) {
