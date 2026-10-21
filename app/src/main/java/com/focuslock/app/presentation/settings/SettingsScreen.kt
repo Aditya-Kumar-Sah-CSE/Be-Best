@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Pin
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -43,7 +44,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -367,11 +370,15 @@ fun SettingsScreen(
 
                 // Item 6: About FocusLock (Screen 9)
                 item {
+                    val updateManager = remember { com.focuslock.app.core.update.AppUpdateManager.getInstance() }
+                    val currentVersion = remember { updateManager.getInstalledVersionName(context) }
+                    val coroutineScope = rememberCoroutineScope()
+
                     SettingsGroupCard(
                         icon = Icons.Default.Info,
                         iconColor = Neutral400,
                         title = "About",
-                        subtitle = "FocusLock Version 1.0.0",
+                        subtitle = "FocusLock Version $currentVersion",
                         isExpanded = showAboutSection,
                         onClick = { showAboutSection = !showAboutSection }
                     ) {
@@ -389,6 +396,33 @@ fun SettingsScreen(
                                 color = Neutral400,
                                 lineHeight = 16.sp
                             )
+                            Spacer(modifier = Modifier.height(14.dp))
+                            androidx.compose.material3.OutlinedButton(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        updateManager.checkForUpdates(context, force = true)
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(44.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorderSubtle),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = BrandCyan)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.SystemUpdate,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = BrandCyan
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Check for Updates",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         }
                     }
                 }

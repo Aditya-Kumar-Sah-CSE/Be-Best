@@ -14,6 +14,12 @@
     <!-- 3. Standard notification alerts for quota warnings (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- 4. Internet access strictly for checking and downloading genuine in-app updates from GitHub -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- 5. Request package installation permission for in-app updates on Android 8.0+ -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- Query declaration for installed launchable apps (Compliant alternative to QUERY_ALL_PACKAGES) -->
     <queries>
         <intent>
@@ -90,6 +96,17 @@
                 <action android:name="android.intent.action.DATE_CHANGED" />
             </intent-filter>
         </receiver>
+
+        <!-- FileProvider for secure in-app APK installation -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
     </application>
 

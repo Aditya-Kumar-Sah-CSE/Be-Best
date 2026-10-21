@@ -1,0 +1,303 @@
+package com.focuslock.app.core.update
+
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import androidx.core.content.FileProvider
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.io.BufferedInputStream
+import java.io.File
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import javax.net.ssl.HttpsURLConnection
+
+class AppUpdateManager(
+    private val metadataUrl: String = DEFAULT_METADATA_URL
+) {
+
+    private val _updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
+    val updateState: StateFlow<UpdateState> = _updateState.asStateFlow()
+
+    private var isDismissedForSession = false
+    private var lastCheckedTimestamp = 0L
+
+    fun getInstalledVersionCode(context: Context): Long {
+        return try {
+            val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.packageManager.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(0))
+            } else {
+                @Suppress("DEPRECATION")
+                context.packageManager.getPackageInfo(context.packageName, 0)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                packageInfo.longVersionCode
+            } else {
+                @Suppress("DEPRECATION")
+                packageInfo.versionCode.toLong()
+            }
+        } catch (e: Exception) {
+            1L
+        }
+    }
+
+    fun getInstalledVersionName(context: Context): String {
+        return try {
+            val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.packageManager.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(0))
+            } else {
+                @Suppress("DEPRECATION")
+                context.packageManager.getPackageInfo(context.packageName, 0)
+            }
+            packageInfo.versionName ?: "1.0.0"
+        } catch (e: Exception) {
+            "1.0.0"
+        }
+    }
+
+    suspend fun checkForUpdates(context: Context, force: Boolean = false): UpdateInfo? = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        if (!force && isDismissedForSession) {
+            return@withContext null
+        }
+        // Throttling: If checked within last 60 seconds and not forced, return cached state
+        if (!force && (now - lastCheckedTimestamp) < 60_000L && _updateState.value is UpdateState.UpdateAvailable) {
+            return@withContext (_updateState.value as UpdateState.UpdateAvailable).info
+        }
+
+        _updateState.value = UpdateState.Checking
+
+        try {
+            val jsonString = fetchMetadataString(metadataUrl)
+            val info = parseMetadata(jsonString)
+            lastCheckedTimestamp = System.currentTimeMillis()
+
+            val currentCode = getInstalledVersionCode(context)
+            if (info.versionCode > currentCode) {
+                if (currentCode >= info.minSupportedVersionCode) {
+                    _updateState.value = UpdateState.UpdateAvailable(info)
+                    return@withContext info
+                } else {
+                    _updateState.value = UpdateState.Error(
+                        "Your current version is too old for automatic update. Please re-install fresh.",
+                        canRetry = false
+                    )
+                    return@withContext null
+                }
+            } else {
+                _updateState.value = UpdateState.UpToDate
+                return@withContext null
+            }
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            _updateState.value = UpdateState.Error("Failed to check for updates: ${e.localizedMessage ?: "Network error"}")
+            return@withContext null
+        }
+    }
+
+    suspend fun downloadAndVerifyUpdate(context: Context, updateInfo: UpdateInfo): File? = withContext(Dispatchers.IO) {
+        _updateState.value = UpdateState.Downloading(
+            progressPercent = 0,
+            downloadedBytes = 0L,
+            totalBytes = updateInfo.apkSizeBytes,
+            info = updateInfo
+        )
+
+        val updatesDir = File(context.cacheDir, "updates")
+        if (!updatesDir.exists()) updatesDir.mkdirs()
+
+        val tempApkFile = File(updatesDir, "focuslock_update_${updateInfo.versionCode}.apk")
+        if (tempApkFile.exists()) tempApkFile.delete()
+
+        var connection: HttpsURLConnection? = null
+        try {
+            val url = URL(updateInfo.apkUrl)
+            connection = url.openConnection() as HttpsURLConnection
+            connection.connectTimeout = 15000
+            connection.readTimeout = 20000
+            connection.instanceFollowRedirects = true
+            connection.connect()
+
+            val responseCode = connection.responseCode
+            if (responseCode !in 200..299) {
+                throw Exception("Server returned HTTP $responseCode")
+            }
+
+            val contentLength = connection.contentLengthLong.let { if (it > 0) it else updateInfo.apkSizeBytes }
+
+            BufferedInputStream(connection.inputStream).use { input ->
+                FileOutputStream(tempApkFile).use { output ->
+                    val buffer = ByteArray(8192)
+                    var bytesRead: Int
+                    var totalDownloaded = 0L
+
+                    while (input.read(buffer).also { bytesRead = it } != -1) {
+                        output.write(buffer, 0, bytesRead)
+                        totalDownloaded += bytesRead
+
+                        val percent = if (contentLength > 0) {
+                            ((totalDownloaded * 100) / contentLength).toInt().coerceIn(0, 100)
+                        } else 0
+
+                        _updateState.value = UpdateState.Downloading(
+                            progressPercent = percent,
+                            downloadedBytes = totalDownloaded,
+                            totalBytes = contentLength,
+                            info = updateInfo
+                        )
+                    }
+                    output.flush()
+                }
+            }
+
+            // Cryptographic and APK provenance validation
+            val validation = ApkSecurityValidator.validateApk(
+                context = context,
+                apkFile = tempApkFile,
+                expectedSha256 = updateInfo.apkSha256,
+                expectedPackage = context.packageName
+            )
+
+            when (validation) {
+                is ApkValidationResult.Valid -> {
+                    _updateState.value = UpdateState.ReadyToInstall(tempApkFile, updateInfo)
+                    return@withContext tempApkFile
+                }
+                is ApkValidationResult.ChecksumMismatch -> {
+                    tempApkFile.delete()
+                    _updateState.value = UpdateState.Error(
+                        "Security verification failed: SHA-256 checksum mismatch. Download may be corrupted."
+                    )
+                    return@withContext null
+                }
+                is ApkValidationResult.PackageMismatch -> {
+                    tempApkFile.delete()
+                    _updateState.value = UpdateState.Error(
+                        "Security verification failed: Package name mismatch (${validation.found})."
+                    )
+                    return@withContext null
+                }
+                is ApkValidationResult.CertificateMismatch -> {
+                    tempApkFile.delete()
+                    _updateState.value = UpdateState.Error(
+                        "Security verification failed: Developer signing certificate mismatch."
+                    )
+                    return@withContext null
+                }
+                is ApkValidationResult.InvalidArchive -> {
+                    tempApkFile.delete()
+                    _updateState.value = UpdateState.Error(
+                        "Security verification failed: Malformed APK file (${validation.reason})."
+                    )
+                    return@withContext null
+                }
+            }
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            tempApkFile.delete()
+            _updateState.value = UpdateState.Error("Download failed: ${e.localizedMessage ?: "Unknown network error"}")
+            return@withContext null
+        } finally {
+            connection?.disconnect()
+        }
+    }
+
+    fun promptInstall(context: Context, apkFile: File): Boolean {
+        if (!apkFile.exists()) {
+            _updateState.value = UpdateState.Error("Downloaded update file not found.")
+            return false
+        }
+
+        // On Android 8.0+ (Oreo), check if app has permission to request package installs
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (!context.packageManager.canRequestPackageInstalls()) {
+                val settingsIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(settingsIntent)
+                return false
+            }
+        }
+
+        return try {
+            val contentUri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                apkFile
+            )
+
+            val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(contentUri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(installIntent)
+            true
+        } catch (e: Exception) {
+            _updateState.value = UpdateState.Error("Could not launch package installer: ${e.localizedMessage}")
+            false
+        }
+    }
+
+    fun dismissForSession() {
+        isDismissedForSession = true
+        _updateState.value = UpdateState.DismissedForSession
+    }
+
+    fun resetState() {
+        _updateState.value = UpdateState.Idle
+    }
+
+    private fun fetchMetadataString(urlStr: String): String {
+        val url = URL(urlStr)
+        val conn = (url.openConnection() as HttpURLConnection).apply {
+            connectTimeout = 10000
+            readTimeout = 15000
+            instanceFollowRedirects = true
+            requestMethod = "GET"
+        }
+        return try {
+            conn.inputStream.bufferedReader().use { it.readText() }
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    fun parseMetadata(jsonStr: String): UpdateInfo {
+        val obj = JSONObject(jsonStr)
+        return UpdateInfo(
+            versionCode = obj.getLong("versionCode"),
+            versionName = obj.optString("versionName", "1.0.0"),
+            releaseNotes = obj.optString("releaseNotes", "General performance improvements and fixes"),
+            apkUrl = obj.getString("apkUrl"),
+            apkSha256 = obj.getString("apkSha256"),
+            apkSizeBytes = obj.optLong("apkSizeBytes", 0L),
+            minSupportedVersionCode = obj.optLong("minSupportedVersionCode", 1L),
+            isMandatory = obj.optBoolean("isMandatory", false)
+        )
+    }
+
+    companion object {
+        const val DEFAULT_METADATA_URL =
+            "https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/release-metadata.json"
+
+        @Volatile
+        private var INSTANCE: AppUpdateManager? = null
+
+        fun getInstance(): AppUpdateManager {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: AppUpdateManager().also { INSTANCE = it }
+            }
+        }
+    }
+}

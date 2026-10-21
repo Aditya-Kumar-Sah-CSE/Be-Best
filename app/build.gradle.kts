@@ -91,6 +91,7 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation("org.json:json:20231013")
 
     debugImplementation(libs.androidx.ui.tooling)
 }

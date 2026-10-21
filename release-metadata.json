@@ -1,0 +1,10 @@
+{
+  "versionCode": 2,
+  "versionName": "1.1.0",
+  "releaseNotes": "• In-App Auto-Update System with cryptographic SHA-256 validation\n• Real per-app daily blocking with individual daily quotas\n• One-time 30-second emergency unlock mechanism\n• Enhanced Google Play Protect compliance and APK integrity\n• Anti-loop guards and smooth Jetpack Compose UI transitions",
+  "apkUrl": "https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/app/build/outputs/apk/debug/app-debug.apk",
+  "apkSha256": "6162A6EC3FAA63B80B71EB28EB0B5095D321B73F2C516EAF989DED03EED51977",
+  "apkSizeBytes": 18727664,
+  "minSupportedVersionCode": 1,
+  "isMandatory": false
+}
