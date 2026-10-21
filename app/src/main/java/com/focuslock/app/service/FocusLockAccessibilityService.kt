@@ -63,9 +63,14 @@ class FocusLockAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event == null || event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        if (event == null) return
+        val eventType = event.eventType
+        if (eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+            eventType != AccessibilityEvent.TYPE_WINDOWS_CHANGED) return
 
-        val packageName = event.packageName?.toString() ?: return
+        val packageName = event.packageName?.toString()
+            ?: rootInActiveWindow?.packageName?.toString()
+            ?: return
 
         // Exclude system UI components, launchers, and FocusLock itself
         if (packageName == applicationContext.packageName ||
@@ -85,17 +90,38 @@ class FocusLockAccessibilityService : AccessibilityService() {
             currentForegroundPackage = packageName
             currentSessionStartElapsed = SystemClock.elapsedRealtime()
 
-            // Synchronize and enforce per-app daily limit
-            checkAndEnforceBlock(packageName)
+            // Synchronize and enforce per-app daily limit immediately on new foreground app
+            checkAndEnforceBlock(packageName, isNewApp = true)
         } else {
-            // Same package changed windows (e.g. Activity switch inside Instagram)
-            checkAndEnforceBlock(packageName)
+            // Same package changed windows (e.g. reels/stories in Instagram). Check block without resetting timer.
+            checkAndEnforceBlock(packageName, isNewApp = false)
         }
     }
 
-    private fun checkAndEnforceBlock(packageName: String) {
+    private fun checkAndEnforceBlock(packageName: String, isNewApp: Boolean) {
         serviceScope.launch {
-            val app = FocusLockApp.instance.appRepository.getApp(packageName)
+            // Check if app is explicitly protected OR if it's a known distraction (e.g., Instagram, YouTube)
+            var app = FocusLockApp.instance.appRepository.getApp(packageName)
+            if (app == null) {
+                val category = com.focuslock.app.domain.model.AppCategory.inferCategory(packageName)
+                if (category.isSuggestedDistraction) {
+                    val appName = try {
+                        val ai = packageManager.getApplicationInfo(packageName, 0)
+                        packageManager.getApplicationLabel(ai).toString()
+                    } catch (e: Exception) {
+                        packageName.substringAfterLast('.').replaceFirstChar { it.uppercase() }
+                    }
+                    FocusLockApp.instance.appRepository.setAppProtection(
+                        packageName = packageName,
+                        appName = appName,
+                        enabled = true,
+                        limitSeconds = 1800L,
+                        category = category
+                    )
+                    app = FocusLockApp.instance.appRepository.getApp(packageName)
+                }
+            }
+
             if (app != null && app.enabled) {
                 // Reconcile with Android's UsageStatsManager first to ensure accurate measured time
                 try {
@@ -108,13 +134,15 @@ class FocusLockAccessibilityService : AccessibilityService() {
 
                 if (evaluation.status == ProtectionState.EMERGENCY_ACTIVE) {
                     // Protected app is within its one-time 30-second emergency access window
-                    activeMonitoringJob?.cancel()
-                    val remainingMs = (evaluation.remainingEmergencySeconds * 1000L).coerceAtLeast(100L)
-                    activeMonitoringJob = serviceScope.launch {
-                        delay(remainingMs)
-                        val reEval = FocusLockApp.instance.quotaEngine.evaluateQuota(packageName)
-                        if (reEval.isBlocked && currentForegroundPackage == packageName) {
-                            launchBlockScreen(packageName, app.displayName)
+                    if (isNewApp || activeMonitoringJob?.isActive != true) {
+                        activeMonitoringJob?.cancel()
+                        val remainingMs = (evaluation.remainingEmergencySeconds * 1000L).coerceAtLeast(100L)
+                        activeMonitoringJob = serviceScope.launch {
+                            delay(remainingMs)
+                            val reEval = FocusLockApp.instance.quotaEngine.evaluateQuota(packageName)
+                            if (reEval.isBlocked && currentForegroundPackage == packageName) {
+                                launchBlockScreen(packageName, app.displayName)
+                            }
                         }
                     }
                     return@launch
@@ -125,33 +153,40 @@ class FocusLockAccessibilityService : AccessibilityService() {
                     return@launch
                 }
 
-                // App is currently allowed with remaining time: monitor actively while in foreground
-                val remainingSeconds = evaluation.remainingSeconds
-                if (remainingSeconds > 0) {
+                // If this is a new app entry or monitoring job was cancelled, start active ticker
+                if (isNewApp || activeMonitoringJob?.isActive != true) {
                     activeMonitoringJob?.cancel()
                     activeMonitoringJob = serviceScope.launch {
-                        var remaining = remainingSeconds
-                        while (remaining > 0 && currentForegroundPackage == packageName) {
-                            delay(1000L)
-                            remaining--
+                        val sessionStart = SystemClock.elapsedRealtime()
+                        val initialUsed = evaluation.usedSeconds
+                        val limitSeconds = app.dailyLimitSeconds
 
-                            // Periodically re-sync every 10 seconds
-                            if (remaining % 10 == 0L) {
+                        while (currentForegroundPackage == packageName) {
+                            delay(1000L)
+                            val elapsedInSession = (SystemClock.elapsedRealtime() - sessionStart) / 1000L
+                            val currentTotal = initialUsed + elapsedInSession
+
+                            // Persist usage to Room every 3 seconds so real-time counts are preserved
+                            if (elapsedInSession > 0 && elapsedInSession % 3L == 0L) {
+                                FocusLockApp.instance.quotaEngine.recordUsage(
+                                    packageName = packageName,
+                                    additionalSeconds = 3L,
+                                    source = "ACCESSIBILITY_ACTIVE"
+                                )
+                            }
+
+                            // Periodically re-sync with UsageStatsManager
+                            if (elapsedInSession > 0 && elapsedInSession % 10L == 0L) {
                                 try {
                                     FocusLockApp.instance.realUsageTracker.syncPackageUsage(packageName)
                                 } catch (e: Exception) {}
-                                val reCheck = FocusLockApp.instance.quotaEngine.evaluateQuota(packageName)
-                                if (reCheck.isBlocked) {
-                                    launchBlockScreen(packageName, app.displayName)
-                                    break
-                                }
-                                remaining = reCheck.remainingSeconds
                             }
-                        }
 
-                        if (currentForegroundPackage == packageName) {
-                            // Limit hit while user was actively in the app!
-                            launchBlockScreen(packageName, app.displayName)
+                            val reCheck = FocusLockApp.instance.quotaEngine.evaluateQuota(packageName)
+                            if (reCheck.isBlocked || currentTotal >= limitSeconds) {
+                                launchBlockScreen(packageName, app.displayName)
+                                break
+                            }
                         }
                     }
                 }
@@ -166,7 +201,7 @@ class FocusLockAccessibilityService : AccessibilityService() {
         }
 
         val nowElapsed = SystemClock.elapsedRealtime()
-        if (lastBlockedPackage == packageName && (nowElapsed - lastBlockLaunchElapsed) < 1200L) {
+        if (lastBlockedPackage == packageName && (nowElapsed - lastBlockLaunchElapsed) < 800L) {
             return
         }
 
@@ -179,7 +214,7 @@ class FocusLockAccessibilityService : AccessibilityService() {
             addFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK or
                 Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                Intent.FLAG_ACTIVITY_NO_ANIMATION
+                Intent.FLAG_ACTIVITY_SINGLE_TOP
             )
         }
         startActivity(intent)
@@ -220,14 +255,10 @@ class FocusLockAccessibilityService : AccessibilityService() {
         val start = currentSessionStartElapsed
         if (start > 0L) {
             val elapsedSecs = (SystemClock.elapsedRealtime() - start) / 1000L
-            if (elapsedSecs >= 1L) {
-                serviceScope.launch {
-                    FocusLockApp.instance.quotaEngine.recordUsage(
-                        packageName = prevPkg,
-                        additionalSeconds = elapsedSecs,
-                        source = "ACCESSIBILITY"
-                    )
-                }
+            serviceScope.launch {
+                try {
+                    FocusLockApp.instance.realUsageTracker.syncPackageUsage(prevPkg)
+                } catch (e: Exception) {}
             }
         }
     }

@@ -88,56 +88,133 @@ class RealUsageTracker(
             .sortedWith(compareByDescending<LaunchableAppInfo> { it.isProtected }.thenBy { it.appName.lowercase() })
     }
 
-    /**
-     * Queries actual Android UsageStatsManager statistics for the current local day.
-     * Reconciles usage into Room without double counting.
-     */
-    suspend fun reconcileWithAndroidUsageStats(targetPackages: List<String>) = withContext(Dispatchers.IO) {
-        val manager = usageStatsManager ?: return@withContext
+    private fun getForegroundTimeFromEvents(manager: UsageStatsManager, packageName: String, startDay: Long, now: Long): Long {
+        return try {
+            val events = manager.queryEvents(startDay, now) ?: return 0L
+            var totalMs = 0L
+            var lastResumeMs = 0L
+            val event = android.app.usage.UsageEvents.Event()
 
+            while (events.hasNextEvent()) {
+                events.getNextEvent(event)
+                if (event.packageName == packageName) {
+                    when (event.eventType) {
+                        android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED,
+                        android.app.usage.UsageEvents.Event.MOVE_TO_FOREGROUND -> {
+                            lastResumeMs = event.timeStamp
+                        }
+                        android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED,
+                        android.app.usage.UsageEvents.Event.ACTIVITY_STOPPED,
+                        android.app.usage.UsageEvents.Event.MOVE_TO_BACKGROUND -> {
+                            if (lastResumeMs > 0L) {
+                                val duration = event.timeStamp - lastResumeMs
+                                if (duration > 0) {
+                                    totalMs += duration
+                                }
+                                lastResumeMs = 0L
+                            }
+                        }
+                    }
+                }
+            }
+            if (lastResumeMs > 0L && lastResumeMs <= now) {
+                val duration = now - lastResumeMs
+                if (duration > 0) {
+                    totalMs += duration
+                }
+            }
+            totalMs / 1000L
+        } catch (e: Exception) {
+            0L
+        }
+    }
+
+    /**
+     * Resolves authoritative foreground usage in seconds across all Android UsageStatsManager APIs.
+     * Prevents bucket-loss across 4:00 AM cycle / midnight transitions.
+     */
+    fun queryAccurateUsageSeconds(packageName: String): Long {
+        val manager = usageStatsManager ?: return 0L
         val startDay = timeProvider.getStartOfDayMillis()
         val now = timeProvider.currentTimeMillis()
 
-        val stats = manager.queryUsageStats(
-            UsageStatsManager.INTERVAL_DAILY,
-            startDay,
-            now
-        ) ?: return@withContext
+        // 1. Raw exact event ground truth
+        val eventsSecs = getForegroundTimeFromEvents(manager, packageName, startDay, now)
 
+        // 2. Android aggregated usage stats (INTERVAL_BEST)
+        val aggStats = try {
+            manager.queryAndAggregateUsageStats(startDay, now)
+        } catch (e: Exception) {
+            emptyMap()
+        }
+        val aggSecs = (aggStats[packageName]?.totalTimeInForeground ?: 0L) / 1000L
+
+        // 3. Sum of all matching buckets in INTERVAL_BEST
+        val listBestSecs = try {
+            val list = manager.queryUsageStats(UsageStatsManager.INTERVAL_BEST, startDay, now)
+            list?.filter { it.packageName == packageName }?.sumOf { it.totalTimeInForeground }?.div(1000L) ?: 0L
+        } catch (e: Exception) {
+            0L
+        }
+
+        // 4. Sum of all matching buckets in INTERVAL_DAILY
+        val listDailySecs = try {
+            val list = manager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, startDay, now)
+            list?.filter { it.packageName == packageName }?.sumOf { it.totalTimeInForeground }?.div(1000L) ?: 0L
+        } catch (e: Exception) {
+            0L
+        }
+
+        // 5. Calendar 24h fallback (in case system bucketed from calendar midnight 00:00:00)
+        val calendarMidnightSecs = try {
+            val midnightToday = timeProvider.getTodayLocalDate().atStartOfDay(timeProvider.getZoneId()).toInstant().toEpochMilli()
+            val midAgg = manager.queryAndAggregateUsageStats(midnightToday, now)
+            (midAgg[packageName]?.totalTimeInForeground ?: 0L) / 1000L
+        } catch (e: Exception) {
+            0L
+        }
+
+        return maxOf(eventsSecs, aggSecs, listBestSecs, listDailySecs, calendarMidnightSecs)
+    }
+
+    /**
+     * Queries actual Android UsageStatsManager statistics for the current cycle.
+     * Reconciles usage into Room without under-reporting.
+     */
+    suspend fun reconcileWithAndroidUsageStats(targetPackages: List<String>) = withContext(Dispatchers.IO) {
+        val now = timeProvider.currentTimeMillis()
         val todayDate = TimeUtils.formatDate(timeProvider.getTodayLocalDate())
         val tzId = timeProvider.getZoneId().id
 
-        for (stat in stats) {
-            if (targetPackages.contains(stat.packageName)) {
-                val measuredSeconds = stat.totalTimeInForeground / 1000
-                val existing = usageDao.getDailyUsageForApp(stat.packageName, todayDate)
+        for (pkg in targetPackages) {
+            val measuredSeconds = queryAccurateUsageSeconds(pkg)
+            val existing = usageDao.getDailyUsageForApp(pkg, todayDate)
+            val app = protectedAppDao.getAppByPackageName(pkg)
+            val quota = app?.dailyLimitSeconds ?: 1800L
 
-                if (existing != null) {
-                    // Reconcile: use maximum verified foreground time to prevent under-reporting
-                    if (measuredSeconds > existing.usedSeconds) {
-                        usageDao.insertOrUpdateDailyUsage(
-                            existing.copy(
-                                usedSeconds = measuredSeconds,
-                                isBlocked = measuredSeconds >= existing.quotaSeconds,
-                                updatedAt = now
-                            )
-                        )
-                    }
-                } else if (measuredSeconds > 0) {
-                    val app = protectedAppDao.getAppByPackageName(stat.packageName)
-                    val quota = app?.dailyLimitSeconds ?: 1800L
+            if (existing != null) {
+                val maxSecs = maxOf(measuredSeconds, existing.usedSeconds)
+                if (maxSecs > existing.usedSeconds) {
                     usageDao.insertOrUpdateDailyUsage(
-                        DailyUsageEntity(
-                            packageName = stat.packageName,
-                            localDate = todayDate,
-                            timezoneId = tzId,
-                            usedSeconds = measuredSeconds,
-                            quotaSeconds = quota,
-                            isBlocked = measuredSeconds >= quota,
+                        existing.copy(
+                            usedSeconds = maxSecs,
+                            isBlocked = maxSecs >= existing.quotaSeconds,
                             updatedAt = now
                         )
                     )
                 }
+            } else if (measuredSeconds > 0L) {
+                usageDao.insertOrUpdateDailyUsage(
+                    DailyUsageEntity(
+                        packageName = pkg,
+                        localDate = todayDate,
+                        timezoneId = tzId,
+                        usedSeconds = measuredSeconds,
+                        quotaSeconds = quota,
+                        isBlocked = measuredSeconds >= quota,
+                        updatedAt = now
+                    )
+                )
             }
         }
     }
@@ -147,22 +224,13 @@ class RealUsageTracker(
      * Guaranteed to update Room immediately so quota checks are authoritative.
      */
     suspend fun syncPackageUsage(packageName: String): Long = withContext(Dispatchers.IO) {
-        val manager = usageStatsManager ?: return@withContext 0L
-        val startDay = timeProvider.getStartOfDayMillis()
-        val now = timeProvider.currentTimeMillis()
-
-        val stats = manager.queryUsageStats(
-            UsageStatsManager.INTERVAL_DAILY,
-            startDay,
-            now
-        ) ?: return@withContext 0L
-
-        val stat = stats.find { it.packageName == packageName }
-        val measuredSeconds = (stat?.totalTimeInForeground ?: 0L) / 1000L
-
+        val measuredSeconds = queryAccurateUsageSeconds(packageName)
         val todayDate = TimeUtils.formatDate(timeProvider.getTodayLocalDate())
         val tzId = timeProvider.getZoneId().id
+        val now = timeProvider.currentTimeMillis()
         val existing = usageDao.getDailyUsageForApp(packageName, todayDate)
+        val app = protectedAppDao.getAppByPackageName(packageName)
+        val quota = app?.dailyLimitSeconds ?: 1800L
 
         if (existing != null) {
             val maxSeconds = maxOf(measuredSeconds, existing.usedSeconds)
@@ -177,8 +245,6 @@ class RealUsageTracker(
             }
             maxSeconds
         } else if (measuredSeconds > 0L) {
-            val app = protectedAppDao.getAppByPackageName(packageName)
-            val quota = app?.dailyLimitSeconds ?: 1800L
             usageDao.insertOrUpdateDailyUsage(
                 DailyUsageEntity(
                     packageName = packageName,

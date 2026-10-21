@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.Process
 import android.provider.Settings
+import kotlinx.coroutines.launch
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -222,6 +223,9 @@ fun OnboardingScreen(
                             if (hasAccessibility || hasUsageAccess) {
                                 val prefs = context.getSharedPreferences("focuslock_app_prefs", Context.MODE_PRIVATE)
                                 prefs.edit().putBoolean("is_onboarded", true).apply()
+                                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                    try { com.focuslock.app.FocusLockApp.instance.appRepository.selectAllSuggestedDistractions(1800L) } catch (e: Exception) {}
+                                }
                                 onFinishOnboarding()
                             } else {
                                 context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -239,6 +243,9 @@ fun OnboardingScreen(
                             .clickable {
                                 val prefs = context.getSharedPreferences("focuslock_app_prefs", Context.MODE_PRIVATE)
                                 prefs.edit().putBoolean("is_onboarded", true).apply()
+                                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                    try { com.focuslock.app.FocusLockApp.instance.appRepository.selectAllSuggestedDistractions(1800L) } catch (e: Exception) {}
+                                }
                                 onFinishOnboarding()
                             }
                             .padding(8.dp)

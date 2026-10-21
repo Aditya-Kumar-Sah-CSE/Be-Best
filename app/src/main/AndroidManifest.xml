@@ -54,7 +54,6 @@
             android:excludeFromRecents="true"
             android:exported="false"
             android:launchMode="singleTop"
-            android:noHistory="true"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.FocusLock.Blocking"
             tools:ignore="LockedOrientationActivity" />

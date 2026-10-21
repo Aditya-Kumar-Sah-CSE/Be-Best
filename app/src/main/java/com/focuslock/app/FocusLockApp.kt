@@ -12,6 +12,9 @@ import com.focuslock.app.data.local.FocusLockDatabase
 import com.focuslock.app.data.repository.AppRepositoryImpl
 import com.focuslock.app.data.repository.UsageRepositoryImpl
 import com.focuslock.app.domain.engine.QuotaEngine
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class FocusLockApp : Application() {
 
@@ -61,6 +64,15 @@ class FocusLockApp : Application() {
         )
 
         createNotificationChannels()
+
+        // Ensure default distractions (Instagram, YouTube, etc.) have 30-min limits on startup
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                if (database.protectedAppDao().getActiveProtectedApps().isEmpty()) {
+                    appRepository.selectAllSuggestedDistractions(1800L)
+                }
+            } catch (e: Exception) {}
+        }
     }
 
     private fun createNotificationChannels() {
