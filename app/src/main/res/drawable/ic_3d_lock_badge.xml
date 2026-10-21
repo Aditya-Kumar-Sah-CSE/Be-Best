@@ -1,0 +1,36 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="96dp"
+    android:height="96dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+
+    <!-- Fluid organic squircle badge with gradient -->
+    <path android:pathData="M32,16 C16,18 14,32 16,48 C18,64 24,78 48,80 C72,82 80,68 80,48 C80,28 68,14 48,16 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:angle="135"
+                android:endColor="#7C3AED"
+                android:startColor="#38BDF8"
+                android:type="linear" />
+        </aapt:attr>
+    </path>
+
+    <!-- Inner Padlock Shackle -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M41,40 V35 C41,31.13 44.13,28 48,28 C51.87,28 55,31.13 55,35 V40"
+        android:strokeWidth="3.2"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round" />
+
+    <!-- Padlock Body -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,40 H58 C59.65,40 61,41.35 61,43 V56 C61,57.65 59.65,59 58,59 H38 C36.35,59 35,57.65 35,56 V43 C35,41.35 36.35,40 38,40 Z" />
+
+    <!-- Padlock Keyhole -->
+    <path
+        android:fillColor="#4F46E5"
+        android:pathData="M48,46 C46.9,46 46,46.9 46,48 C46,48.7 46.4,49.3 47,49.7 V53 C47,53.5 47.5,54 48,54 C48.5,54 49,53.5 49,53 V49.7 C49.6,49.3 50,48.7 50,48 C50,46.9 49.1,46 48,46 Z" />
+</vector>

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base Theme -->
+    <style name="Theme.FocusLock" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@color/amoled_black</item>
+        <item name="android:navigationBarColor">@color/amoled_black</item>
+        <item name="android:windowBackground">@color/amoled_black</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <!-- Blocking Fullscreen Overlay Theme -->
+    <style name="Theme.FocusLock.Blocking" parent="Theme.FocusLock">
+        <item name="android:windowBackground">@color/amoled_black</item>
+        <item name="android:windowTranslucentStatus">true</item>
+        <item name="android:windowTranslucentNavigation">true</item>
+        <item name="android:windowDisablePreview">true</item>
+    </style>
+</resources>

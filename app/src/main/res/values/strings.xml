@@ -1,0 +1,22 @@
+<resources>
+    <string name="app_name">FocusLock</string>
+    <string name="tagline">Master Your Digital Focus</string>
+
+    <!-- Accessibility -->
+    <string name="accessibility_service_label">FocusLock Protection Engine</string>
+    <string name="accessibility_service_description">Used strictly to detect when selected social media or gaming apps open and enforce your daily focus limits. FocusLock never reads your keystrokes, personal messages, or screen content.</string>
+
+    <!-- Blocker Screen (User's Reference) -->
+    <string name="stay_focused">Stay focused!</string>
+    <string name="future_self_quote">Your future self will thank you.</string>
+    <string name="quota_reached_subtitle">This app is blocked because you\'re in a fluid focus session or reached your daily limit.</string>
+    <string name="unlocks_in">Unlocks in %s</string>
+    <string name="go_to_home">Go to Home</string>
+    <string name="open_dashboard">Open Dashboard</string>
+    <string name="emergency_exit">Emergency Unlock</string>
+
+    <!-- Hardcore Mode -->
+    <string name="hardcore_mode_active">Hardcore Mode Active</string>
+    <string name="hardcore_delay_warning">Settings modification requires a 60-second cooldown period.</string>
+    <string name="enter_pin">Enter Security PIN</string>
+</resources>
