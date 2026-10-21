@@ -147,7 +147,7 @@ class AppUpdateManager(
 
                         val percent = if (contentLength > 0) {
                             ((totalDownloaded * 100) / contentLength).toInt().coerceIn(0, 100)
-                        } else 0
+                        } else -1
 
                         _updateState.value = UpdateState.Downloading(
                             progressPercent = percent,

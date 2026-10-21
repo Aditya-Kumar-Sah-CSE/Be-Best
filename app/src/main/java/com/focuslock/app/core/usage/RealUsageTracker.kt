@@ -93,6 +93,7 @@ class RealUsageTracker(
             val events = manager.queryEvents(startDay, now) ?: return 0L
             var totalMs = 0L
             var lastResumeMs = 0L
+            var hasSeenAnyEvent = false
             val event = android.app.usage.UsageEvents.Event()
 
             while (events.hasNextEvent()) {
@@ -101,6 +102,7 @@ class RealUsageTracker(
                     when (event.eventType) {
                         android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED,
                         android.app.usage.UsageEvents.Event.MOVE_TO_FOREGROUND -> {
+                            hasSeenAnyEvent = true
                             lastResumeMs = event.timeStamp
                         }
                         android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED,
@@ -112,7 +114,14 @@ class RealUsageTracker(
                                     totalMs += duration
                                 }
                                 lastResumeMs = 0L
+                            } else if (!hasSeenAnyEvent) {
+                                // App was already in foreground when local midnight started
+                                val duration = event.timeStamp - startDay
+                                if (duration > 0) {
+                                    totalMs += duration
+                                }
                             }
+                            hasSeenAnyEvent = true
                         }
                     }
                 }
@@ -129,65 +138,88 @@ class RealUsageTracker(
         }
     }
 
+    private fun getForegroundTimesFromEventsBatch(manager: UsageStatsManager, startDay: Long, now: Long): Map<String, Long> {
+        val resultMap = mutableMapOf<String, Long>()
+        val lastResumeMap = mutableMapOf<String, Long>()
+        val hasSeenEventMap = mutableMapOf<String, Boolean>()
+
+        try {
+            val events = manager.queryEvents(startDay, now) ?: return emptyMap()
+            val event = android.app.usage.UsageEvents.Event()
+
+            while (events.hasNextEvent()) {
+                events.getNextEvent(event)
+                val pkg = event.packageName ?: continue
+                when (event.eventType) {
+                    android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED,
+                    android.app.usage.UsageEvents.Event.MOVE_TO_FOREGROUND -> {
+                        hasSeenEventMap[pkg] = true
+                        lastResumeMap[pkg] = event.timeStamp
+                    }
+                    android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED,
+                    android.app.usage.UsageEvents.Event.ACTIVITY_STOPPED,
+                    android.app.usage.UsageEvents.Event.MOVE_TO_BACKGROUND -> {
+                        val lastResume = lastResumeMap[pkg] ?: 0L
+                        if (lastResume > 0L) {
+                            val duration = event.timeStamp - lastResume
+                            if (duration > 0) {
+                                resultMap[pkg] = (resultMap[pkg] ?: 0L) + duration
+                            }
+                            lastResumeMap[pkg] = 0L
+                        } else if (hasSeenEventMap[pkg] != true) {
+                            val duration = event.timeStamp - startDay
+                            if (duration > 0) {
+                                resultMap[pkg] = (resultMap[pkg] ?: 0L) + duration
+                            }
+                        }
+                        hasSeenEventMap[pkg] = true
+                    }
+                }
+            }
+
+            for ((pkg, lastResume) in lastResumeMap) {
+                if (lastResume > 0L && lastResume <= now) {
+                    val duration = now - lastResume
+                    if (duration > 0) {
+                        resultMap[pkg] = (resultMap[pkg] ?: 0L) + duration
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Ignore
+        }
+
+        return resultMap.mapValues { it.value / 1000L }
+    }
+
     /**
-     * Resolves authoritative foreground usage in seconds across all Android UsageStatsManager APIs.
-     * Prevents bucket-loss across 12:00 AM midnight transitions.
+     * Resolves authoritative foreground usage in seconds strictly for today's local cycle.
+     * Guaranteed never to leak yesterday's pre-bucketed UsageStats into today.
      */
     fun queryAccurateUsageSeconds(packageName: String): Long {
         val manager = usageStatsManager ?: return 0L
         val startDay = timeProvider.getStartOfDayMillis()
         val now = timeProvider.currentTimeMillis()
+        if (now <= startDay) return 0L
 
-        // 1. Raw exact event ground truth
-        val eventsSecs = getForegroundTimeFromEvents(manager, packageName, startDay, now)
-
-        // 2. Android aggregated usage stats (INTERVAL_BEST)
-        val aggStats = try {
-            manager.queryAndAggregateUsageStats(startDay, now)
-        } catch (e: Exception) {
-            emptyMap()
-        }
-        val aggSecs = (aggStats[packageName]?.totalTimeInForeground ?: 0L) / 1000L
-
-        // 3. Sum of all matching buckets in INTERVAL_BEST
-        val listBestSecs = try {
-            val list = manager.queryUsageStats(UsageStatsManager.INTERVAL_BEST, startDay, now)
-            list?.filter { it.packageName == packageName }?.sumOf { it.totalTimeInForeground }?.div(1000L) ?: 0L
-        } catch (e: Exception) {
-            0L
-        }
-
-        // 4. Sum of all matching buckets in INTERVAL_DAILY
-        val listDailySecs = try {
-            val list = manager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, startDay, now)
-            list?.filter { it.packageName == packageName }?.sumOf { it.totalTimeInForeground }?.div(1000L) ?: 0L
-        } catch (e: Exception) {
-            0L
-        }
-
-        // 5. Calendar 24h fallback (in case system bucketed from calendar midnight 00:00:00)
-        val calendarMidnightSecs = try {
-            val midnightToday = timeProvider.getTodayLocalDate().atStartOfDay(timeProvider.getZoneId()).toInstant().toEpochMilli()
-            val midAgg = manager.queryAndAggregateUsageStats(midnightToday, now)
-            (midAgg[packageName]?.totalTimeInForeground ?: 0L) / 1000L
-        } catch (e: Exception) {
-            0L
-        }
-
-        return maxOf(eventsSecs, aggSecs, listBestSecs, listDailySecs, calendarMidnightSecs)
+        return getForegroundTimeFromEvents(manager, packageName, startDay, now)
     }
 
     /**
      * Queries actual Android UsageStatsManager statistics for the current cycle.
-     * Reconciles usage into Room without under-reporting.
+     * Reconciles usage into Room without carrying over prior days.
      */
     suspend fun reconcileWithAndroidUsageStats(targetPackages: List<String>) = withContext(Dispatchers.IO) {
+        val manager = usageStatsManager ?: return@withContext
+        val startDay = timeProvider.getStartOfDayMillis()
         val now = timeProvider.currentTimeMillis()
         val todayDate = TimeUtils.formatDate(timeProvider.getTodayLocalDate())
         val tzId = timeProvider.getZoneId().id
 
+        val batchMeasured = getForegroundTimesFromEventsBatch(manager, startDay, now)
+
         for (pkg in targetPackages) {
-            val measuredSeconds = queryAccurateUsageSeconds(pkg)
+            val measuredSeconds = batchMeasured[pkg] ?: 0L
             val existing = usageDao.getDailyUsageForApp(pkg, todayDate)
             val app = protectedAppDao.getAppByPackageName(pkg)
             val quota = app?.dailyLimitSeconds ?: 1800L

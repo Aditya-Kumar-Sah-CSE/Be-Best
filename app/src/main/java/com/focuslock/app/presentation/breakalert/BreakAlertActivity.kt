@@ -78,16 +78,33 @@ class BreakAlertActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val autoStart = intent.getBooleanExtra(EXTRA_AUTO_START, false)
 
         setContent {
             FocusLockTheme {
                 BackHandler {
-                    // Back press closes the alert and resumes
+                    // Back press snoozes the reminder and finishes
+                    com.focuslock.app.core.util.BreakReminderHelper.snooze(this@BreakAlertActivity, 5L)
                     finish()
                 }
 
                 BreakAlertScreen(
+                    autoStart = autoStart,
+                    onStartBreak = {
+                        // Start break session
+                    },
+                    onBreakCompleted = {
+                        com.focuslock.app.core.util.BreakReminderHelper.resetSession(this@BreakAlertActivity)
+                        com.focuslock.app.core.util.BreakReminderHelper.showBreakCompletedNotification(this@BreakAlertActivity)
+                        com.focuslock.app.core.util.BreakReminderHelper.dismissReminderNotification(this@BreakAlertActivity)
+                    },
+                    onRemindLater = {
+                        com.focuslock.app.core.util.BreakReminderHelper.snooze(this@BreakAlertActivity, 5L)
+                        finish()
+                    },
                     onDismissBreak = {
+                        com.focuslock.app.core.util.BreakReminderHelper.resetSession(this@BreakAlertActivity)
+                        com.focuslock.app.core.util.BreakReminderHelper.dismissReminderNotification(this@BreakAlertActivity)
                         finish()
                     }
                 )
@@ -106,12 +123,15 @@ class BreakAlertActivity : ComponentActivity() {
     }
 
     companion object {
+        const val EXTRA_AUTO_START = "extra_auto_start"
+
         @Volatile
         var isBreakAlertVisible: Boolean = false
             private set
 
-        fun launch(context: Context) {
+        fun launch(context: Context, autoStart: Boolean = false) {
             val intent = Intent(context, BreakAlertActivity::class.java).apply {
+                putExtra(EXTRA_AUTO_START, autoStart)
                 addFlags(
                     Intent.FLAG_ACTIVITY_NEW_TASK or
                     Intent.FLAG_ACTIVITY_CLEAR_TOP or
@@ -125,16 +145,26 @@ class BreakAlertActivity : ComponentActivity() {
 
 @Composable
 fun BreakAlertScreen(
-    onDismissBreak: () -> Unit
+    autoStart: Boolean = false,
+    onStartBreak: () -> Unit = {},
+    onBreakCompleted: () -> Unit = {},
+    onRemindLater: () -> Unit = {},
+    onDismissBreak: () -> Unit = {}
 ) {
     // 5 minutes = 300 seconds break countdown
     var remainingBreakSeconds by remember { mutableLongStateOf(300L) }
-    var isTimerRunning by remember { mutableStateOf(true) }
+    var isTimerRunning by remember { mutableStateOf(autoStart) }
+    var isCompleted by remember { mutableStateOf(false) }
 
     LaunchedEffect(isTimerRunning) {
         while (isTimerRunning && remainingBreakSeconds > 0) {
             delay(1000L)
             remainingBreakSeconds--
+            if (remainingBreakSeconds <= 0L) {
+                isCompleted = true
+                isTimerRunning = false
+                onBreakCompleted()
+            }
         }
     }
 
@@ -191,8 +221,8 @@ fun BreakAlertScreen(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
-                    text = "Time for a 5-Min Break",
-                    fontSize = 24.sp,
+                    text = "Time for a break!",
+                    fontSize = 26.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = Color.White,
                     textAlign = TextAlign.Center
@@ -201,11 +231,21 @@ fun BreakAlertScreen(
                 Spacer(modifier = Modifier.height(6.dp))
 
                 Text(
-                    text = "You've been on your screen for 30 minutes continuously.",
-                    fontSize = 14.sp,
+                    text = "You've been using your phone for 30 minutes.",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = BrandCyan,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = "Take a 5-minute walk, stretch, and drink some water.",
+                    fontSize = 13.sp,
                     color = Neutral400,
                     textAlign = TextAlign.Center,
-                    lineHeight = 20.sp
+                    lineHeight = 18.sp
                 )
             }
 
@@ -349,41 +389,102 @@ fun BreakAlertScreen(
             // Bottom Actions
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Button(
-                    onClick = onDismissBreak,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = BrandCyan)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = null,
-                        tint = Color.Black,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "I Walked & Drank Water ✓",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.Black
-                    )
-                }
+                if (!isTimerRunning && !isCompleted) {
+                    Button(
+                        onClick = {
+                            isTimerRunning = true
+                            onStartBreak()
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = BrandCyan)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = Color.Black,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Start 5-Minute Break",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.Black
+                        )
+                    }
 
-                OutlinedButton(
-                    onClick = onDismissBreak,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(44.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorderSubtle),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Neutral400)
-                ) {
-                    Text(text = "Snooze 5 Minutes", fontSize = 13.sp)
+                    OutlinedButton(
+                        onClick = onRemindLater,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorderSubtle),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Neutral200)
+                    ) {
+                        Text(
+                            text = "Remind Me Later",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                } else if (isTimerRunning) {
+                    Button(
+                        onClick = onDismissBreak,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = BrandTeal)
+                    ) {
+                        Text(
+                            text = "Break In Progress (Take a Walk & Hydrate)",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.Black
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = onRemindLater,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorderSubtle),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Neutral400)
+                    ) {
+                        Text(text = "Remind Me Later", fontSize = 13.sp)
+                    }
+                } else {
+                    // Completed state
+                    Button(
+                        onClick = onDismissBreak,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = Color.Black,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Break Complete! Continue ✓",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.Black
+                        )
+                    }
                 }
             }
         }

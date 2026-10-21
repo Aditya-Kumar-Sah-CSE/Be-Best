@@ -111,44 +111,87 @@ class UsageRepositoryImpl(
         val startDay = TimeUtils.getDayStartMillis()
         val now = System.currentTimeMillis()
 
-        val stats = usageStatsManager.queryUsageStats(
-            UsageStatsManager.INTERVAL_DAILY,
-            startDay,
-            now
-        ) ?: return@withContext
-
         val today = TimeUtils.getTodayDateString()
         val tzId = TimeZone.getDefault().id
 
-        for (stat in stats) {
-            if (packageNames.contains(stat.packageName)) {
-                val statsUsageSeconds = stat.totalTimeInForeground / 1000
-                val existing = dao.getDailyUsageForApp(stat.packageName, today)
+        val events = try {
+            usageStatsManager.queryEvents(startDay, now)
+        } catch (e: Exception) {
+            null
+        } ?: return@withContext
 
-                if (existing != null) {
-                    // Reconcile if UsageStats recorded more than foreground sessions
-                    if (statsUsageSeconds > existing.usedSeconds) {
-                        dao.insertOrUpdateDailyUsage(
-                            existing.copy(
-                                usedSeconds = statsUsageSeconds,
-                                isBlocked = statsUsageSeconds >= existing.quotaSeconds,
-                                updatedAt = now
-                            )
-                        )
+        val resultMap = mutableMapOf<String, Long>()
+        val lastResumeMap = mutableMapOf<String, Long>()
+        val hasSeenEventMap = mutableMapOf<String, Boolean>()
+        val event = android.app.usage.UsageEvents.Event()
+
+        while (events.hasNextEvent()) {
+            events.getNextEvent(event)
+            val pkg = event.packageName ?: continue
+            if (!packageNames.contains(pkg)) continue
+
+            when (event.eventType) {
+                android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED,
+                android.app.usage.UsageEvents.Event.MOVE_TO_FOREGROUND -> {
+                    hasSeenEventMap[pkg] = true
+                    lastResumeMap[pkg] = event.timeStamp
+                }
+                android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED,
+                android.app.usage.UsageEvents.Event.ACTIVITY_STOPPED,
+                android.app.usage.UsageEvents.Event.MOVE_TO_BACKGROUND -> {
+                    val lastResume = lastResumeMap[pkg] ?: 0L
+                    if (lastResume > 0L) {
+                        val duration = event.timeStamp - lastResume
+                        if (duration > 0) {
+                            resultMap[pkg] = (resultMap[pkg] ?: 0L) + duration
+                        }
+                        lastResumeMap[pkg] = 0L
+                    } else if (hasSeenEventMap[pkg] != true) {
+                        val duration = event.timeStamp - startDay
+                        if (duration > 0) {
+                            resultMap[pkg] = (resultMap[pkg] ?: 0L) + duration
+                        }
                     }
-                } else if (statsUsageSeconds > 0) {
+                    hasSeenEventMap[pkg] = true
+                }
+            }
+        }
+
+        for ((pkg, lastResume) in lastResumeMap) {
+            if (lastResume > 0L && lastResume <= now) {
+                val duration = now - lastResume
+                if (duration > 0) {
+                    resultMap[pkg] = (resultMap[pkg] ?: 0L) + duration
+                }
+            }
+        }
+
+        for (pkg in packageNames) {
+            val statsUsageSeconds = (resultMap[pkg] ?: 0L) / 1000L
+            val existing = dao.getDailyUsageForApp(pkg, today)
+
+            if (existing != null) {
+                if (statsUsageSeconds > existing.usedSeconds) {
                     dao.insertOrUpdateDailyUsage(
-                        DailyUsageEntity(
-                            packageName = stat.packageName,
-                            localDate = today,
-                            timezoneId = tzId,
+                        existing.copy(
                             usedSeconds = statsUsageSeconds,
-                            quotaSeconds = 1800L,
-                            isBlocked = statsUsageSeconds >= 1800L,
+                            isBlocked = statsUsageSeconds >= existing.quotaSeconds,
                             updatedAt = now
                         )
                     )
                 }
+            } else if (statsUsageSeconds > 0) {
+                dao.insertOrUpdateDailyUsage(
+                    DailyUsageEntity(
+                        packageName = pkg,
+                        localDate = today,
+                        timezoneId = tzId,
+                        usedSeconds = statsUsageSeconds,
+                        quotaSeconds = 1800L,
+                        isBlocked = statsUsageSeconds >= 1800L,
+                        updatedAt = now
+                    )
+                )
             }
         }
     }

@@ -37,12 +37,11 @@ class FocusLockAccessibilityService : AccessibilityService() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 Intent.ACTION_SCREEN_OFF -> {
-                    // User turned off screen -> Reset continuous session
-                    continuousScreenStartElapsed = 0L
+                    recordPreviousSession()
+                    com.focuslock.app.core.util.BreakReminderHelper.onScreenOff(applicationContext)
                 }
                 Intent.ACTION_SCREEN_ON, Intent.ACTION_USER_PRESENT -> {
-                    // Screen turned on / unlocked -> Begin continuous tracking
-                    continuousScreenStartElapsed = SystemClock.elapsedRealtime()
+                    com.focuslock.app.core.util.BreakReminderHelper.onScreenOn(applicationContext)
                 }
             }
         }
@@ -50,7 +49,8 @@ class FocusLockAccessibilityService : AccessibilityService() {
 
     override fun onCreate() {
         super.onCreate()
-        continuousScreenStartElapsed = SystemClock.elapsedRealtime()
+        com.focuslock.app.core.util.BreakReminderHelper.onScreenOn(applicationContext)
+        com.focuslock.app.core.util.BreakReminderHelper.createNotificationChannel(applicationContext)
 
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_ON)
@@ -158,21 +158,21 @@ class FocusLockAccessibilityService : AccessibilityService() {
                     activeMonitoringJob?.cancel()
                     activeMonitoringJob = serviceScope.launch {
                         val sessionStart = SystemClock.elapsedRealtime()
-                        val initialUsed = evaluation.usedSeconds
-                        val limitSeconds = app.dailyLimitSeconds
+                        var lastRecordedSessionSecs = 0L
 
                         while (currentForegroundPackage == packageName) {
                             delay(1000L)
                             val elapsedInSession = (SystemClock.elapsedRealtime() - sessionStart) / 1000L
-                            val currentTotal = initialUsed + elapsedInSession
+                            val delta = elapsedInSession - lastRecordedSessionSecs
 
-                            // Persist usage to Room every 3 seconds so real-time counts are preserved
-                            if (elapsedInSession > 0 && elapsedInSession % 3L == 0L) {
+                            // Record incremental usage to QuotaEngine every 2 seconds
+                            if (delta >= 2L) {
                                 FocusLockApp.instance.quotaEngine.recordUsage(
                                     packageName = packageName,
-                                    additionalSeconds = 3L,
+                                    additionalSeconds = delta,
                                     source = "ACCESSIBILITY_ACTIVE"
                                 )
+                                lastRecordedSessionSecs = elapsedInSession
                             }
 
                             // Periodically re-sync with UsageStatsManager
@@ -183,7 +183,7 @@ class FocusLockAccessibilityService : AccessibilityService() {
                             }
 
                             val reCheck = FocusLockApp.instance.quotaEngine.evaluateQuota(packageName)
-                            if (reCheck.isBlocked || currentTotal >= limitSeconds) {
+                            if (reCheck.isBlocked) {
                                 launchBlockScreen(packageName, app.displayName)
                                 break
                             }
@@ -228,23 +228,12 @@ class FocusLockAccessibilityService : AccessibilityService() {
         breakMonitorJob?.cancel()
         breakMonitorJob = serviceScope.launch {
             while (true) {
-                delay(10_000L) // Check every 10 seconds
-                val start = continuousScreenStartElapsed
-                if (start > 0L) {
-                    val continuousElapsedMs = SystemClock.elapsedRealtime() - start
-                    val thirtyMinutesMs = 30 * 60 * 1000L
-
-                    if (continuousElapsedMs >= thirtyMinutesMs) {
-                        val prefs = getSharedPreferences("focuslock_app_prefs", Context.MODE_PRIVATE)
-                        val isBreakAlertEnabled = prefs.getBoolean("continuous_break_alert", true)
-
-                        if (isBreakAlertEnabled && !BreakAlertActivity.isBreakAlertVisible && !BlockingActivity.isBlockingScreenVisible) {
-                            // Reset timer so it triggers again after another 30 mins
-                            continuousScreenStartElapsed = SystemClock.elapsedRealtime()
-                            BreakAlertActivity.launch(applicationContext)
-                        }
+                delay(5000L) // Check every 5 seconds
+                try {
+                    if (!BlockingActivity.isBlockingScreenVisible) {
+                        com.focuslock.app.core.util.BreakReminderHelper.checkAndTriggerReminder(applicationContext)
                     }
-                }
+                } catch (e: Exception) {}
             }
         }
     }
@@ -255,8 +244,16 @@ class FocusLockAccessibilityService : AccessibilityService() {
         val start = currentSessionStartElapsed
         if (start > 0L) {
             val elapsedSecs = (SystemClock.elapsedRealtime() - start) / 1000L
+            currentSessionStartElapsed = 0L
             serviceScope.launch {
                 try {
+                    if (elapsedSecs > 0L) {
+                        FocusLockApp.instance.quotaEngine.recordUsage(
+                            packageName = prevPkg,
+                            additionalSeconds = elapsedSecs % 2L,
+                            source = "ACCESSIBILITY_REMAINDER"
+                        )
+                    }
                     FocusLockApp.instance.realUsageTracker.syncPackageUsage(prevPkg)
                 } catch (e: Exception) {}
             }

@@ -231,36 +231,51 @@ fun UpdateDialog(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        LinearProgressIndicator(
-                            progress = { updateState.progressPercent / 100f },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(8.dp)
-                                .clip(RoundedCornerShape(4.dp)),
-                            color = BrandCyan,
-                            trackColor = DarkSurfaceElevated
-                        )
+                        if (updateState.progressPercent >= 0) {
+                            LinearProgressIndicator(
+                                progress = { updateState.progressPercent / 100f },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(8.dp)
+                                    .clip(RoundedCornerShape(4.dp)),
+                                color = BrandCyan,
+                                trackColor = DarkSurfaceElevated
+                            )
+                        } else {
+                            LinearProgressIndicator(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(8.dp)
+                                    .clip(RoundedCornerShape(4.dp)),
+                                color = BrandCyan,
+                                trackColor = DarkSurfaceElevated
+                            )
+                        }
 
                         Spacer(modifier = Modifier.height(10.dp))
 
                         val downloadedMb = String.format(Locale.US, "%.1f", updateState.downloadedBytes / (1024f * 1024f))
-                        val totalMb = String.format(Locale.US, "%.1f", updateState.totalBytes / (1024f * 1024f))
+                        val totalMb = if (updateState.totalBytes > 0) {
+                            String.format(Locale.US, "%.1f", updateState.totalBytes / (1024f * 1024f))
+                        } else null
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "$downloadedMb MB / $totalMb MB",
+                                text = if (totalMb != null) "$downloadedMb MB / $totalMb MB" else "$downloadedMb MB downloaded",
                                 fontSize = 12.sp,
                                 color = Neutral400
                             )
-                            Text(
-                                text = "${updateState.progressPercent}%",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
+                            if (updateState.progressPercent >= 0) {
+                                Text(
+                                    text = "${updateState.progressPercent}%",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = BrandCyan
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))

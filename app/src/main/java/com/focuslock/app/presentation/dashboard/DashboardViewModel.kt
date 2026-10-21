@@ -12,10 +12,12 @@ import com.focuslock.app.data.local.entity.FocusSessionEntity
 import com.focuslock.app.data.local.entity.ProtectedAppEntity
 import com.focuslock.app.domain.model.ProtectionHealth
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -60,11 +62,14 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private val focusSessionDao = app.database.focusSessionDao()
     private val pm = application.packageManager
 
+    private val currentDateFlow = MutableStateFlow(TimeUtils.getTodayDateString())
+
     private val _uiState = MutableStateFlow(DashboardUiState())
     val uiState: StateFlow<DashboardUiState> = _uiState.asStateFlow()
 
     init {
         loadDashboardData()
+        startMidnightCountdownTicker()
     }
 
     fun refreshHealth() {
@@ -72,6 +77,14 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         val hasUsage = checkUsageAccess()
         val hasAccessibility = checkAccessibilityEnabled()
         val hasBattery = BatteryOptimizationHelper.isIgnoringBatteryOptimizations(context)
+
+        val todayDate = TimeUtils.getTodayDateString()
+        if (currentDateFlow.value != todayDate) {
+            currentDateFlow.value = todayDate
+            viewModelScope.launch(Dispatchers.IO) {
+                app.quotaEngine.checkAndPerformMidnightReset()
+            }
+        }
 
         _uiState.value = _uiState.value.copy(
             protectionHealth = ProtectionHealth(
@@ -85,75 +98,95 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         )
     }
 
-    private fun loadDashboardData() {
-        refreshHealth()
-        val today = TimeUtils.getTodayDateString()
-
+    private fun startMidnightCountdownTicker() {
         viewModelScope.launch {
-            combine(
-                appRepo.getProtectedAppsFlow(),
-                usageRepo.getDailyUsageFlow(today),
-                focusSessionDao.getActiveSessionFlow()
-            ) { protectedApps: List<ProtectedAppEntity>, dailyUsages: List<DailyUsageEntity>, activeFocus: FocusSessionEntity? ->
-                val usageMap = dailyUsages.associateBy { it.packageName }
-                val activeProtected = protectedApps.filter { it.enabled }
-
-                val cards = withContext(Dispatchers.IO) {
-                    activeProtected.map { appEntity ->
-                        val usage = usageMap[appEntity.packageName]
-                        val usedSecs = usage?.usedSeconds ?: 0L
-                        val quotaSecs = appEntity.dailyLimitSeconds
-                        val blocked = usage?.isBlocked ?: (usedSecs >= quotaSecs && quotaSecs > 0)
-                        val warning = !blocked && quotaSecs > 0 && usedSecs >= (quotaSecs * 0.75)
-
-                        val icon = try {
-                            pm.getApplicationIcon(appEntity.packageName)
-                        } catch (e: Exception) {
-                            null
-                        }
-
-                        DashboardCardItem(
-                            packageName = appEntity.packageName,
-                            displayName = appEntity.displayName,
-                            category = appEntity.category,
-                            usedSeconds = usedSecs,
-                            quotaSeconds = quotaSecs,
-                            isBlocked = blocked,
-                            isWarning = warning,
-                            appIcon = icon
-                        )
+            while (true) {
+                delay(1000L)
+                val todayDate = TimeUtils.getTodayDateString()
+                if (currentDateFlow.value != todayDate) {
+                    currentDateFlow.value = todayDate
+                    withContext(Dispatchers.IO) {
+                        app.quotaEngine.checkAndPerformMidnightReset()
                     }
                 }
-
-                val totalUsed = cards.sumOf { it.usedSeconds }
-                val totalQuotas = cards.sumOf { it.quotaSeconds }
-                val totalRemaining = (totalQuotas - totalUsed).coerceAtLeast(0L)
-                val blockedCount = cards.count { it.isBlocked }
-
-                // Sort: first blocked, then nearing limit, then highest usage
-                val closeToLimit = cards
-                    .filter { it.isWarning || it.isBlocked || it.progressFraction > 0.5f }
-                    .sortedByDescending { it.progressFraction }
-
-                // Time saved: calculated if user stayed under their assigned quotas
-                val timeSaved = if (totalQuotas > 0 && totalUsed < totalQuotas) {
-                    (totalQuotas - totalUsed).coerceAtLeast(0L)
-                } else null
-
-                DashboardUiState(
-                    totalUsedSeconds = totalUsed,
-                    totalDailyQuotaSeconds = totalQuotas,
-                    totalRemainingSeconds = totalRemaining,
-                    totalTimeSavedSeconds = timeSaved,
-                    protectedAppsCount = activeProtected.size,
-                    blockedAppsCount = blockedCount,
-                    appsCloseToLimit = closeToLimit,
-                    appCards = cards,
-                    activeFocusSession = activeFocus,
-                    protectionHealth = _uiState.value.protectionHealth,
-                    isHardcoreActive = securityManager.isHardcoreModeActive(),
+                _uiState.value = _uiState.value.copy(
                     secondsUntilMidnight = TimeUtils.getSecondsUntilNextMidnight()
                 )
+            }
+        }
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private fun loadDashboardData() {
+        refreshHealth()
+
+        viewModelScope.launch {
+            currentDateFlow.flatMapLatest { today ->
+                combine(
+                    appRepo.getProtectedAppsFlow(),
+                    usageRepo.getDailyUsageFlow(today),
+                    focusSessionDao.getActiveSessionFlow()
+                ) { protectedApps: List<ProtectedAppEntity>, dailyUsages: List<DailyUsageEntity>, activeFocus: FocusSessionEntity? ->
+                    val usageMap = dailyUsages.associateBy { it.packageName }
+                    val activeProtected = protectedApps.filter { it.enabled }
+
+                    val cards = withContext(Dispatchers.IO) {
+                        activeProtected.map { appEntity ->
+                            val usage = usageMap[appEntity.packageName]
+                            val usedSecs = usage?.usedSeconds ?: 0L
+                            val quotaSecs = appEntity.dailyLimitSeconds
+                            val blocked = usage?.isBlocked ?: (usedSecs >= quotaSecs && quotaSecs > 0)
+                            val warning = !blocked && quotaSecs > 0 && usedSecs >= (quotaSecs * 0.75)
+
+                            val icon = try {
+                                pm.getApplicationIcon(appEntity.packageName)
+                            } catch (e: Exception) {
+                                null
+                            }
+
+                            DashboardCardItem(
+                                packageName = appEntity.packageName,
+                                displayName = appEntity.displayName,
+                                category = appEntity.category,
+                                usedSeconds = usedSecs,
+                                quotaSeconds = quotaSecs,
+                                isBlocked = blocked,
+                                isWarning = warning,
+                                appIcon = icon
+                            )
+                        }
+                    }
+
+                    val totalUsed = cards.sumOf { it.usedSeconds }
+                    val totalQuotas = cards.sumOf { it.quotaSeconds }
+                    val totalRemaining = (totalQuotas - totalUsed).coerceAtLeast(0L)
+                    val blockedCount = cards.count { it.isBlocked }
+
+                    // Sort: first blocked, then nearing limit, then highest usage
+                    val closeToLimit = cards
+                        .filter { it.isWarning || it.isBlocked || it.progressFraction > 0.5f }
+                        .sortedByDescending { it.progressFraction }
+
+                    // Time saved: calculated if user stayed under their assigned quotas
+                    val timeSaved = if (totalQuotas > 0 && totalUsed < totalQuotas) {
+                        (totalQuotas - totalUsed).coerceAtLeast(0L)
+                    } else null
+
+                    DashboardUiState(
+                        totalUsedSeconds = totalUsed,
+                        totalDailyQuotaSeconds = totalQuotas,
+                        totalRemainingSeconds = totalRemaining,
+                        totalTimeSavedSeconds = timeSaved,
+                        protectedAppsCount = activeProtected.size,
+                        blockedAppsCount = blockedCount,
+                        appsCloseToLimit = closeToLimit,
+                        appCards = cards,
+                        activeFocusSession = activeFocus,
+                        protectionHealth = _uiState.value.protectionHealth,
+                        isHardcoreActive = securityManager.isHardcoreModeActive(),
+                        secondsUntilMidnight = TimeUtils.getSecondsUntilNextMidnight()
+                    )
+                }
             }.collect { state ->
                 _uiState.value = state
             }

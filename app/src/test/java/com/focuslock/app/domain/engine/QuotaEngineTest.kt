@@ -14,6 +14,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -498,5 +499,95 @@ class QuotaEngineTest {
         val eval = quotaEngine.evaluateQuota(instagramPkg)
         assertTrue("Reboot must immediately invalidate emergency session", eval.isBlocked)
         assertEquals(ProtectionState.BLOCKED_UNTIL_RESET, eval.status)
+    }
+
+    @Test
+    fun testMidnightReset_HistoricalUsagePreservedInRoom() = runBlocking {
+        // Day 1: 2026-10-21
+        val day1Date = TimeUtils.formatDate(fakeTimeProvider.getTodayLocalDate())
+        quotaEngine.recordUsage(instagramPkg, 1800L)
+
+        val day1Eval = quotaEngine.evaluateQuota(instagramPkg)
+        assertTrue("Day 1 quota must be blocked after 1800s", day1Eval.isBlocked)
+        assertEquals(1800L, day1Eval.usedSeconds)
+
+        // Advance to Day 2: 2026-10-22 (crossing 12:00 AM midnight)
+        fakeTimeProvider.advanceDateByDays(1)
+        val day2Date = TimeUtils.formatDate(fakeTimeProvider.getTodayLocalDate())
+
+        // Trigger midnight reset for new day
+        quotaEngine.checkAndPerformMidnightReset()
+
+        // Verify Day 2 starts fresh
+        val day2Eval = quotaEngine.evaluateQuota(instagramPkg)
+        assertFalse("Day 2 must start UNBLOCKED", day2Eval.isBlocked)
+        assertEquals("Day 2 usage must start at 0s", 0L, day2Eval.usedSeconds)
+        assertEquals("Day 2 remaining allowance must be full limit", 1800L, day2Eval.remainingSeconds)
+
+        // Verify Day 1 historical record is strictly preserved
+        val day1Historical = usageDao.getDailyUsageForApp(instagramPkg, day1Date)
+        assertNotNull("Day 1 historical record must be preserved", day1Historical)
+        assertEquals("Day 1 historical usage must remain 1800s", 1800L, day1Historical!!.usedSeconds)
+        assertTrue("Day 1 historical blocked flag must remain true", day1Historical.isBlocked)
+    }
+
+    @Test
+    fun testProcessRestartAcrossMidnight_RestoresFreshQuota() = runBlocking {
+        // App records usage before midnight
+        quotaEngine.recordUsage(youtubePkg, 1200L)
+        val beforeMidnight = quotaEngine.evaluateQuota(youtubePkg)
+        assertEquals(1200L, beforeMidnight.usedSeconds)
+
+        // Process killed and phone transitions past midnight
+        fakeTimeProvider.advanceDateByDays(1)
+
+        // Recreate QuotaEngine as happens during process restart
+        val newQuotaEngineInstance = QuotaEngine(
+            protectedAppDao = protectedAppDao,
+            usageDao = usageDao,
+            timeProvider = fakeTimeProvider,
+            permissionChecker = permissionChecker
+        )
+
+        val afterRestartEval = newQuotaEngineInstance.evaluateQuota(youtubePkg)
+        assertFalse("After process restart on new day, app must be unblocked", afterRestartEval.isBlocked)
+        assertEquals("After restart on new day, usage must be 0s", 0L, afterRestartEval.usedSeconds)
+        assertEquals(1800L, afterRestartEval.remainingSeconds)
+    }
+
+    @Test
+    fun testTimezoneChange_ReCalculatesDailyResetCorrectly() = runBlocking {
+        // App in UTC
+        val initialSeconds = quotaEngine.getSecondsUntilNextDailyReset()
+        assertTrue("Seconds until next midnight must be positive", initialSeconds > 0)
+
+        // User switches to Asia/Kolkata (IST = UTC+5:30)
+        fakeTimeProvider.setZone(ZoneId.of("Asia/Kolkata"))
+        val istSeconds = quotaEngine.getSecondsUntilNextDailyReset()
+        assertTrue("Seconds until next midnight in new timezone must be positive", istSeconds > 0)
+    }
+
+    @Test
+    fun testReEnteringBlockedApp_DoesNotBypassEnforcement() = runBlocking {
+        quotaEngine.recordUsage(instagramPkg, 1800L)
+
+        // First attempt to open Instagram
+        val eval1 = quotaEngine.evaluateQuota(instagramPkg)
+        assertTrue("First attempt must be blocked", eval1.isBlocked)
+
+        // User exits and tries to reopen Instagram 10 seconds later
+        fakeTimeProvider.advanceSeconds(10)
+        val eval2 = quotaEngine.evaluateQuota(instagramPkg)
+        assertTrue("Re-entry attempt MUST remain blocked", eval2.isBlocked)
+        assertEquals("Blocked reason must be populated", "Daily allowance of 30m exhausted", eval2.blockedReason)
+    }
+
+    @Test
+    fun testOwnAppUI_ExcludedFromProtection() = runBlocking {
+        val ownAppPkg = "com.focuslock.app"
+        val eval = quotaEngine.evaluateQuota(ownAppPkg)
+
+        assertFalse("FocusLock itself must NEVER be blocked", eval.isBlocked)
+        assertEquals(ProtectionState.ALLOWED, eval.status)
     }
 }
