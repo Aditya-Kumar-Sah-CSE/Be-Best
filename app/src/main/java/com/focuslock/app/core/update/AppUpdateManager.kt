@@ -100,7 +100,13 @@ class AppUpdateManager(
             }
         } catch (e: Exception) {
             if (e is CancellationException) throw e
-            _updateState.value = UpdateState.Error("Failed to check for updates: ${e.localizedMessage ?: "Network error"}")
+            val errorMsg = when (e) {
+                is java.net.UnknownHostException -> "No internet connection. Please check your network and try again."
+                is java.net.SocketTimeoutException -> "Connection timed out while checking for updates."
+                is java.net.ConnectException -> "Could not connect to update server. Please try again later."
+                else -> "Failed to check for updates: ${e.localizedMessage ?: "Network error"}"
+            }
+            _updateState.value = UpdateState.Error(errorMsg)
             return@withContext null
         }
     }
@@ -151,6 +157,10 @@ class AppUpdateManager(
                         )
                     }
                     output.flush()
+
+                    if (contentLength > 0 && totalDownloaded < contentLength) {
+                        throw java.io.IOException("Incomplete download: received $totalDownloaded of $contentLength bytes")
+                    }
                 }
             }
 
@@ -159,7 +169,8 @@ class AppUpdateManager(
                 context = context,
                 apkFile = tempApkFile,
                 expectedSha256 = updateInfo.apkSha256,
-                expectedPackage = context.packageName
+                expectedPackage = context.packageName,
+                minVersionCode = updateInfo.versionCode
             )
 
             when (validation) {
@@ -181,6 +192,13 @@ class AppUpdateManager(
                     )
                     return@withContext null
                 }
+                is ApkValidationResult.VersionMismatch -> {
+                    tempApkFile.delete()
+                    _updateState.value = UpdateState.Error(
+                        "Security verification failed: APK version ${validation.foundVersion} is lower than required version ${validation.expectedMinVersion}."
+                    )
+                    return@withContext null
+                }
                 is ApkValidationResult.CertificateMismatch -> {
                     tempApkFile.delete()
                     _updateState.value = UpdateState.Error(
@@ -199,7 +217,12 @@ class AppUpdateManager(
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             tempApkFile.delete()
-            _updateState.value = UpdateState.Error("Download failed: ${e.localizedMessage ?: "Unknown network error"}")
+            val errorMsg = when (e) {
+                is java.net.UnknownHostException -> "Download failed: No internet connection."
+                is java.net.SocketTimeoutException -> "Download timed out. Please check your internet connection."
+                else -> "Download failed: ${e.localizedMessage ?: "Unknown network error"}"
+            }
+            _updateState.value = UpdateState.Error(errorMsg)
             return@withContext null
         } finally {
             connection?.disconnect()
@@ -304,15 +327,31 @@ class AppUpdateManager(
 
     fun parseMetadata(jsonStr: String): UpdateInfo {
         val obj = JSONObject(jsonStr)
+        val versionCode = obj.getLong("versionCode")
+        val versionName = obj.optString("versionName", "")
+        val apkUrl = obj.getString("apkUrl").trim()
+        val apkSha256 = obj.getString("apkSha256").trim()
+        val releaseNotes = obj.optString("releaseNotes", "General performance improvements and fixes")
+        val apkSizeBytes = obj.optLong("apkSizeBytes", 0L)
+        val minSupportedVersionCode = obj.optLong("minSupportedVersionCode", 1L)
+        val isMandatory = obj.optBoolean("isMandatory", false)
+
+        require(versionCode > 0) { "Invalid metadata: versionCode must be positive (found $versionCode)" }
+        require(versionName.isNotBlank()) { "Invalid metadata: versionName cannot be blank" }
+        require(apkUrl.startsWith("https://")) { "Security violation: apkUrl must use secure HTTPS protocol" }
+        require(apkSha256.length == 64 && apkSha256.all { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' }) {
+            "Security violation: apkSha256 must be a valid 64-character hexadecimal SHA-256 hash"
+        }
+
         return UpdateInfo(
-            versionCode = obj.getLong("versionCode"),
-            versionName = obj.optString("versionName", "1.0.0"),
-            releaseNotes = obj.optString("releaseNotes", "General performance improvements and fixes"),
-            apkUrl = obj.getString("apkUrl"),
-            apkSha256 = obj.getString("apkSha256"),
-            apkSizeBytes = obj.optLong("apkSizeBytes", 0L),
-            minSupportedVersionCode = obj.optLong("minSupportedVersionCode", 1L),
-            isMandatory = obj.optBoolean("isMandatory", false)
+            versionCode = versionCode,
+            versionName = versionName,
+            releaseNotes = releaseNotes,
+            apkUrl = apkUrl,
+            apkSha256 = apkSha256.uppercase(),
+            apkSizeBytes = apkSizeBytes,
+            minSupportedVersionCode = minSupportedVersionCode,
+            isMandatory = isMandatory
         )
     }
 

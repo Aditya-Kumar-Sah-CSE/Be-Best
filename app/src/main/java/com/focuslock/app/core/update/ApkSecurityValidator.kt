@@ -13,10 +13,14 @@ sealed class ApkValidationResult {
     data class ChecksumMismatch(val expected: String, val actual: String) : ApkValidationResult()
     data class InvalidArchive(val reason: String) : ApkValidationResult()
     data class PackageMismatch(val expected: String, val found: String) : ApkValidationResult()
+    data class VersionMismatch(val expectedMinVersion: Long, val foundVersion: Long) : ApkValidationResult()
     object CertificateMismatch : ApkValidationResult()
 }
 
 object ApkSecurityValidator {
+
+    // SHA-256 fingerprint of the official FocusLock signing certificate
+    const val FOCUSLOCK_RELEASE_CERT_SHA256 = "5DFC7E8D13125F283874DDC3FCB9DE6E8D07BE4C715C9083D38CA7EB4E435FFA"
 
     fun calculateSha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
@@ -41,11 +45,22 @@ object ApkSecurityValidator {
         return actual.equals(expectedSha256.trim(), ignoreCase = true)
     }
 
+    fun calculateCertSha256(certBytes: ByteArray): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val hashBytes = digest.digest(certBytes)
+        val sb = StringBuilder()
+        for (b in hashBytes) {
+            sb.append(String.format("%02X", b))
+        }
+        return sb.toString()
+    }
+
     fun validateApk(
         context: Context,
         apkFile: File,
         expectedSha256: String,
-        expectedPackage: String = context.packageName
+        expectedPackage: String = context.packageName,
+        minVersionCode: Long = 0L
     ): ApkValidationResult {
         // 1. Checksum validation
         val actualSha256 = calculateSha256(apkFile)
@@ -55,15 +70,20 @@ object ApkSecurityValidator {
 
         // 2. Archive validity check
         val pm = context.packageManager
+        @Suppress("DEPRECATION")
         val archiveFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            PackageManager.GET_SIGNING_CERTIFICATES
+            PackageManager.GET_SIGNING_CERTIFICATES or PackageManager.GET_SIGNATURES
         } else {
-            @Suppress("DEPRECATION")
             PackageManager.GET_SIGNATURES
         }
 
         val archiveInfo = pm.getPackageArchiveInfo(apkFile.absolutePath, archiveFlags)
             ?: return ApkValidationResult.InvalidArchive("Package manager could not parse APK archive")
+
+        archiveInfo.applicationInfo?.let {
+            it.sourceDir = apkFile.absolutePath
+            it.publicSourceDir = apkFile.absolutePath
+        }
 
         // 3. Package name verification
         if (archiveInfo.packageName != expectedPackage) {
@@ -73,7 +93,21 @@ object ApkSecurityValidator {
             )
         }
 
-        // 4. Signing certificate verification against currently installed application
+        // 4. Version verification (prevent downgrade attacks)
+        val archiveVersionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            archiveInfo.longVersionCode
+        } else {
+            @Suppress("DEPRECATION")
+            archiveInfo.versionCode.toLong()
+        }
+        if (minVersionCode > 0 && archiveVersionCode < minVersionCode) {
+            return ApkValidationResult.VersionMismatch(
+                expectedMinVersion = minVersionCode,
+                foundVersion = archiveVersionCode
+            )
+        }
+
+        // 5. Signing certificate verification against installed app and official certificate
         val archiveSignatures = getArchiveSignatures(archiveInfo)
         val installedSignatures = getInstalledSignatures(pm, expectedPackage)
 
@@ -86,6 +120,14 @@ object ApkSecurityValidator {
             if (!hasMatchingCertificate) {
                 return ApkValidationResult.CertificateMismatch
             }
+        } else if (archiveSignatures.isNotEmpty()) {
+            val matchesOfficialCert = archiveSignatures.any { sigBytes ->
+                val certHash = calculateCertSha256(sigBytes)
+                certHash.equals(FOCUSLOCK_RELEASE_CERT_SHA256, ignoreCase = true)
+            }
+            if (!matchesOfficialCert) {
+                return ApkValidationResult.CertificateMismatch
+            }
         }
 
         return ApkValidationResult.Valid
@@ -93,13 +135,17 @@ object ApkSecurityValidator {
 
     @Suppress("DEPRECATION")
     private fun getArchiveSignatures(archiveInfo: android.content.pm.PackageInfo): List<ByteArray> {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            archiveInfo.signingInfo?.apkContentsSigners?.map { it.toByteArray() }
-                ?: archiveInfo.signingInfo?.signingCertificateHistory?.map { it.toByteArray() }
-                ?: emptyList()
-        } else {
-            archiveInfo.signatures?.map { it.toByteArray() } ?: emptyList()
+        val certs = mutableListOf<ByteArray>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            archiveInfo.signingInfo?.apkContentsSigners?.forEach { certs.add(it.toByteArray()) }
+            if (certs.isEmpty()) {
+                archiveInfo.signingInfo?.signingCertificateHistory?.forEach { certs.add(it.toByteArray()) }
+            }
         }
+        if (certs.isEmpty()) {
+            archiveInfo.signatures?.forEach { certs.add(it.toByteArray()) }
+        }
+        return certs
     }
 
     @Suppress("DEPRECATION")

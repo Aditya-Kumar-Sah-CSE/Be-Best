@@ -2,12 +2,16 @@ package com.focuslock.app.core.update
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 
 class AppUpdateManagerTest {
 
@@ -21,9 +25,9 @@ class AppUpdateManagerTest {
           "versionCode": 2,
           "versionName": "1.1.0",
           "releaseNotes": "• Real per-app daily blocking\n• 30-second emergency unlock",
-          "apkUrl": "https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/app/build/outputs/apk/debug/app-debug.apk",
-          "apkSha256": "412834A1BBC0D7D029F97EBCE45B4C9781168F6CFB345366770998248BE83DCE",
-          "apkSizeBytes": 18399498,
+          "apkUrl": "https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/release/FocusLock-v1.1.0.apk",
+          "apkSha256": "0BE8EDC2028C33A958EF0AF3E7CACCBE4606254CCC368E0E00DF102084AC2EE6",
+          "apkSizeBytes": 18727664,
           "minSupportedVersionCode": 1,
           "isMandatory": false
         }
@@ -41,11 +45,87 @@ class AppUpdateManagerTest {
         assertEquals(2L, info.versionCode)
         assertEquals("1.1.0", info.versionName)
         assertTrue(info.releaseNotes.contains("Real per-app daily blocking"))
-        assertEquals("https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/app/build/outputs/apk/debug/app-debug.apk", info.apkUrl)
-        assertEquals("412834A1BBC0D7D029F97EBCE45B4C9781168F6CFB345366770998248BE83DCE", info.apkSha256)
-        assertEquals(18399498L, info.apkSizeBytes)
+        assertEquals("https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/release/FocusLock-v1.1.0.apk", info.apkUrl)
+        assertEquals("0BE8EDC2028C33A958EF0AF3E7CACCBE4606254CCC368E0E00DF102084AC2EE6", info.apkSha256)
+        assertEquals(18727664L, info.apkSizeBytes)
         assertEquals(1L, info.minSupportedVersionCode)
         assertFalse(info.isMandatory)
+    }
+
+    @Test
+    fun testParseMetadata_RejectsNonPositiveVersionCode() {
+        val invalidJson = """
+            {
+              "versionCode": 0,
+              "versionName": "1.0.0",
+              "apkUrl": "https://example.com/app.apk",
+              "apkSha256": "0BE8EDC2028C33A958EF0AF3E7CACCBE4606254CCC368E0E00DF102084AC2EE6"
+            }
+        """.trimIndent()
+
+        try {
+            updateManager.parseMetadata(invalidJson)
+            fail("Expected IllegalArgumentException for versionCode <= 0")
+        } catch (e: IllegalArgumentException) {
+            assertTrue(e.message?.contains("versionCode") == true)
+        }
+    }
+
+    @Test
+    fun testParseMetadata_RejectsBlankVersionName() {
+        val invalidJson = """
+            {
+              "versionCode": 2,
+              "versionName": "   ",
+              "apkUrl": "https://example.com/app.apk",
+              "apkSha256": "0BE8EDC2028C33A958EF0AF3E7CACCBE4606254CCC368E0E00DF102084AC2EE6"
+            }
+        """.trimIndent()
+
+        try {
+            updateManager.parseMetadata(invalidJson)
+            fail("Expected IllegalArgumentException for blank versionName")
+        } catch (e: IllegalArgumentException) {
+            assertTrue(e.message?.contains("versionName") == true)
+        }
+    }
+
+    @Test
+    fun testParseMetadata_RejectsInsecureHttpUrl() {
+        val insecureJson = """
+            {
+              "versionCode": 2,
+              "versionName": "1.1.0",
+              "apkUrl": "http://example.com/unencrypted_app.apk",
+              "apkSha256": "0BE8EDC2028C33A958EF0AF3E7CACCBE4606254CCC368E0E00DF102084AC2EE6"
+            }
+        """.trimIndent()
+
+        try {
+            updateManager.parseMetadata(insecureJson)
+            fail("Expected IllegalArgumentException for non-HTTPS apkUrl")
+        } catch (e: IllegalArgumentException) {
+            assertTrue(e.message?.contains("HTTPS") == true)
+        }
+    }
+
+    @Test
+    fun testParseMetadata_RejectsMalformedSha256() {
+        val malformedHashJson = """
+            {
+              "versionCode": 2,
+              "versionName": "1.1.0",
+              "apkUrl": "https://example.com/app.apk",
+              "apkSha256": "NOT_A_VALID_HEX_HASH_TOO_SHORT"
+            }
+        """.trimIndent()
+
+        try {
+            updateManager.parseMetadata(malformedHashJson)
+            fail("Expected IllegalArgumentException for malformed SHA-256")
+        } catch (e: IllegalArgumentException) {
+            assertTrue(e.message?.contains("SHA-256") == true)
+        }
     }
 
     @Test
@@ -77,8 +157,6 @@ class AppUpdateManagerTest {
 
     @Test
     fun testSha256Calculation_MatchesKnownDigest() {
-        // "FocusLock Test Payload" SHA-256 is:
-        // echo -n "FocusLock Test Payload" | sha256sum -> 2cb2615456f91f1a5814e5f082e6ef231ec88915b8823293e50669d0d3463991
         val testFile = tempFolder.newFile("sample_test.apk")
         testFile.writeText("FocusLock Test Payload")
 
@@ -101,11 +179,60 @@ class AppUpdateManagerTest {
     }
 
     @Test
+    fun testCertificateFingerprint_ConstantFormat() {
+        val expectedFingerprint = "5DFC7E8D13125F283874DDC3FCB9DE6E8D07BE4C715C9083D38CA7EB4E435FFA"
+        assertEquals(expectedFingerprint, ApkSecurityValidator.FOCUSLOCK_RELEASE_CERT_SHA256)
+        assertEquals(64, ApkSecurityValidator.FOCUSLOCK_RELEASE_CERT_SHA256.length)
+    }
+
+    @Test
+    fun testDownloadProgressCalculation_PercentageAndBytes() {
+        val totalBytes = 18727664L
+        val downloadedBytes = 9363832L
+
+        val percent = ((downloadedBytes * 100) / totalBytes).toInt().coerceIn(0, 100)
+        assertEquals(50, percent)
+
+        val fullBytes = 18727664L
+        val fullPercent = ((fullBytes * 100) / totalBytes).toInt().coerceIn(0, 100)
+        assertEquals(100, fullPercent)
+    }
+
+    @Test
     fun testSessionDismissal_ChangesStateToDismissed() {
         updateManager.dismissForSession()
         assertEquals(UpdateState.DismissedForSession, updateManager.updateState.value)
 
         updateManager.resetState()
         assertEquals(UpdateState.Idle, updateManager.updateState.value)
+    }
+
+    @Test
+    fun testLiveRemoteMetadata_FetchAndValidateFromProductionUrl() {
+        try {
+            val url = URL(AppUpdateManager.DEFAULT_METADATA_URL)
+            val connection = url.openConnection() as HttpURLConnection
+            connection.connectTimeout = 10000
+            connection.readTimeout = 10000
+            connection.setRequestProperty("User-Agent", "FocusLock-Test")
+            connection.connect()
+
+            val responseCode = connection.responseCode
+            assertEquals("Live metadata URL must return HTTP 200 OK", 200, responseCode)
+
+            val jsonContent = connection.inputStream.bufferedReader().use { it.readText() }
+            connection.disconnect()
+
+            val parsedInfo = updateManager.parseMetadata(jsonContent)
+
+            assertEquals("Remote metadata versionCode must be 2", 2L, parsedInfo.versionCode)
+            assertEquals("Remote metadata versionName must be 1.1.0", "1.1.0", parsedInfo.versionName)
+            assertTrue("Remote metadata apkUrl must be HTTPS", parsedInfo.apkUrl.startsWith("https://"))
+            assertEquals(64, parsedInfo.apkSha256.length)
+            assertTrue("Remote metadata apkSizeBytes must be > 0", parsedInfo.apkSizeBytes > 0)
+        } catch (e: java.io.IOException) {
+            // In case of local offline sandbox without internet access during unit tests
+            println("Skipping live network assertion due to offline environment: ${e.message}")
+        }
     }
 }
