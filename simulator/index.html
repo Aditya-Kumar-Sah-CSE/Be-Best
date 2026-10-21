@@ -3,829 +3,536 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FocusLock (Be-Best) — 3D Modern Android Blocker & Wellbeing Simulator</title>
+  <title>FocusLock Interactive Simulator — Not Real Android Enforcement</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg-dark: #07070a;
-      --surface-dark: #0f1118;
-      --card-bg: #151824;
-      --card-border: #222638;
-      --cyan-glow: #00f5ff;
-      --cyan-soft: #38bdf8;
-      --purple-glow: #7c3aed;
-      --purple-soft: #8b5cf6;
-      --text-main: #f8fafc;
+      --bg: #090a0f;
+      --surface: #12151e;
+      --surface-card: #181c28;
+      --border: #24293a;
+      --primary: #6366f1;
+      --primary-hover: #4f46e5;
+      --teal: #14b8a6;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+      --success: #22c55e;
+      --text: #f8fafc;
       --text-muted: #94a3b8;
-      --text-sub: #64748b;
-      --danger-red: #f43f5e;
-      --emerald-green: #10b981;
     }
 
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-      font-family: 'Plus Jakarta Sans', sans-serif;
-      -webkit-font-smoothing: antialiased;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 20px; }
 
-    body {
-      background: radial-gradient(circle at 50% 10%, #15182e 0%, #07070a 60%, #030305 100%);
-      color: var(--text-main);
-      min-height: 100vh;
+    /* Prominent Simulation Disclaimer Banner */
+    .simulator-disclaimer {
+      width: 100%;
+      max-width: 1100px;
+      background: rgba(245, 158, 11, 0.12);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      border-radius: 12px;
+      padding: 12px 20px;
+      margin-bottom: 24px;
       display: flex;
-      flex-direction: column;
       align-items: center;
-      padding: 30px 20px;
-      overflow-x: hidden;
+      gap: 12px;
+      font-size: 0.88rem;
+      color: #fbbf24;
     }
 
-    /* Header Nav */
     header {
       width: 100%;
       max-width: 1100px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 30px;
+      margin-bottom: 24px;
     }
 
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .brand-icon {
-      width: 38px;
-      height: 38px;
-      border-radius: 12px;
-      background: linear-gradient(135deg, #38bdf8, #7c3aed);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 0 20px rgba(56, 189, 248, 0.4);
-    }
-
-    .brand-title {
-      font-size: 1.4rem;
-      font-weight: 800;
-      letter-spacing: -0.5px;
-      background: linear-gradient(135deg, #fff, #94a3b8);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-
-    .badge-pill {
-      font-size: 0.75rem;
-      font-weight: 700;
-      padding: 6px 14px;
+    .brand-title { font-size: 1.4rem; font-weight: 800; color: #fff; }
+    .sim-clock-badge {
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      padding: 8px 16px;
       border-radius: 50px;
-      background: rgba(56, 189, 248, 0.1);
-      border: 1px solid rgba(56, 189, 248, 0.3);
-      color: var(--cyan-soft);
-      display: flex;
-      align-items: center;
-      gap: 6px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      color: var(--teal);
     }
 
-    /* Main Container */
-    .container {
+    .main-grid {
       width: 100%;
-      max-width: 1150px;
+      max-width: 1100px;
       display: grid;
-      grid-template-columns: 420px 1fr;
-      gap: 40px;
+      grid-template-columns: 380px 1fr;
+      gap: 32px;
       align-items: start;
     }
 
-    @media (max-width: 900px) {
-      .container {
-        grid-template-columns: 1fr;
-        justify-items: center;
-      }
+    @media (max-width: 860px) {
+      .main-grid { grid-template-columns: 1fr; justify-items: center; }
     }
 
-    /* 3D Phone Mockup Container */
-    .phone-wrapper {
-      perspective: 1200px;
-      position: sticky;
-      top: 20px;
-    }
-
+    /* Phone Mockup */
     .phone-frame {
-      width: 380px;
-      height: 780px;
+      width: 360px;
+      height: 720px;
       background: #000;
-      border-radius: 50px;
-      box-shadow: 
-        0 25px 60px rgba(0, 0, 0, 0.8),
-        0 0 40px rgba(56, 189, 248, 0.15),
-        inset 0 0 4px 2px rgba(255, 255, 255, 0.15),
-        0 0 0 10px #181920;
-      position: relative;
+      border-radius: 44px;
+      border: 4px solid #2a2e40;
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8), 0 0 0 10px #141722;
       overflow: hidden;
       display: flex;
       flex-direction: column;
-      border: 4px solid #2b2e3c;
-      transition: transform 0.4s ease;
+      position: relative;
     }
 
-    .phone-notch {
-      position: absolute;
-      top: 14px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 110px;
-      height: 24px;
-      background: #000;
-      border-radius: 20px;
-      z-index: 100;
-      display: flex;
-      align-items: center;
-      justify-content: space-around;
-      padding: 0 10px;
-    }
-
-    .camera-lens {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: #0d131f;
-      border: 1px solid #1e293b;
-    }
-
-    .speaker-slot {
-      width: 40px;
-      height: 3px;
-      border-radius: 2px;
-      background: #1e293b;
-    }
-
-    /* Phone Screen Content */
     .phone-screen {
       flex: 1;
-      background: #000;
-      color: #fff;
+      padding: 30px 18px 20px;
       display: flex;
       flex-direction: column;
-      position: relative;
       overflow-y: auto;
       scrollbar-width: none;
     }
 
-    .phone-screen::-webkit-scrollbar {
+    /* Lock Screen View */
+    .lock-view {
       display: none;
-    }
-
-    /* Lock Screen View (Faithful reproduction of user screenshot) */
-    .lock-screen-view {
-      display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: space-between;
       height: 100%;
-      padding: 90px 24px 34px;
       text-align: center;
-      background: #000;
-      animation: fadeIn 0.4s ease;
+      padding: 40px 10px 20px;
     }
 
-    /* 3D Iridescent Floating Squircle */
-    .lock-3d-badge-container {
-      position: relative;
-      margin-bottom: 30px;
+    .lock-badge {
+      width: 72px;
+      height: 72px;
+      border-radius: 24px;
+      background: var(--primary);
       display: flex;
       align-items: center;
       justify-content: center;
+      margin-bottom: 20px;
+      box-shadow: 0 10px 25px rgba(99, 102, 241, 0.4);
     }
 
-    .ambient-glow {
-      position: absolute;
-      width: 150px;
-      height: 150px;
-      border-radius: 50%;
-      background: radial-gradient(circle, rgba(56, 189, 248, 0.4) 0%, rgba(124, 58, 237, 0.25) 50%, transparent 70%);
-      filter: blur(20px);
-      animation: pulseGlow 4s ease-in-out infinite alternate;
-    }
-
-    .fluid-pebble {
-      width: 110px;
-      height: 110px;
-      border-radius: 40px 32px 42px 35px;
-      background: linear-gradient(135deg, #38bdf8 0%, #6366f1 55%, #7c3aed 100%);
-      box-shadow: 
-        0 18px 36px rgba(0, 0, 0, 0.6),
-        0 0 25px rgba(56, 189, 248, 0.5),
-        inset 0 3px 6px rgba(255, 255, 255, 0.6),
-        inset 0 -4px 8px rgba(0, 0, 0, 0.3);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      position: relative;
-      z-index: 2;
-      animation: floatPebble 5s ease-in-out infinite;
-      cursor: pointer;
-    }
-
-    .padlock-svg {
-      width: 44px;
-      height: 44px;
-      fill: #ffffff;
-      filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
-    }
-
-    .headline-stay-focused {
-      font-size: 2rem;
-      font-weight: 800;
-      letter-spacing: -0.5px;
-      color: #ffffff;
-      margin-bottom: 40px;
-    }
-
-    .hero-quote {
-      font-size: 1.55rem;
-      font-weight: 800;
-      line-height: 1.35;
-      color: #ffffff;
-      max-width: 290px;
-      margin: 0 auto 30px;
-    }
-
-    .countdown-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      background: #11141e;
-      border: 1px solid #23293e;
+    .lock-countdown {
+      background: #141722;
+      border: 1px solid var(--border);
       border-radius: 50px;
-      padding: 10px 20px;
+      padding: 8px 18px;
       font-family: 'JetBrains Mono', monospace;
-      font-size: 0.95rem;
-      font-weight: 600;
-      color: var(--cyan-soft);
-      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
-      margin-bottom: 30px;
-    }
-
-    .lock-footer-text {
-      font-size: 0.82rem;
-      color: var(--text-sub);
-      line-height: 1.45;
-      max-width: 260px;
-      margin-bottom: 24px;
-    }
-
-    .lock-action-buttons {
-      display: flex;
-      gap: 10px;
-      width: 100%;
-    }
-
-    .btn-lock {
-      flex: 1;
-      padding: 14px 10px;
-      border-radius: 14px;
-      font-weight: 600;
-      font-size: 0.88rem;
-      border: none;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      transition: all 0.2s;
-    }
-
-    .btn-home {
-      background: #191c28;
-      color: #ffffff;
-    }
-
-    .btn-home:hover {
-      background: #252a3d;
-    }
-
-    .btn-dash {
-      background: transparent;
-      color: var(--cyan-soft);
-      border: 1px solid rgba(56, 189, 248, 0.4);
-    }
-
-    .btn-dash:hover {
-      background: rgba(56, 189, 248, 0.1);
+      font-size: 0.9rem;
+      color: var(--teal);
+      margin: 20px 0;
     }
 
     /* Dashboard View */
     .dashboard-view {
-      display: none;
+      display: flex;
       flex-direction: column;
-      padding: 50px 18px 24px;
-      gap: 16px;
-      animation: fadeIn 0.4s ease;
+      gap: 14px;
     }
 
-    .dash-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+    .card {
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
     }
 
-    .dash-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 20px;
-      padding: 18px;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-    }
-
-    .progress-ring-box {
+    .app-item {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-top: 10px;
-    }
-
-    .metric-big {
-      font-size: 2.2rem;
-      font-weight: 800;
-      letter-spacing: -1px;
-      color: #fff;
-    }
-
-    .metric-pills {
-      display: flex;
-      gap: 8px;
-    }
-
-    .metric-pill {
-      padding: 8px 12px;
-      border-radius: 10px;
-      background: #10121b;
-      border: 1px solid #232738;
-      text-align: center;
-    }
-
-    .app-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 12px 14px;
-      border-radius: 14px;
-      background: #11141e;
-      border: 1px solid #1c2030;
+      padding: 12px;
+      border-radius: 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
       margin-bottom: 8px;
+      cursor: pointer;
     }
 
-    .app-info {
-      display: flex;
-      align-items: center;
-      gap: 10px;
+    .app-item.selected {
+      border-color: var(--primary);
+      background: rgba(99, 102, 241, 0.1);
     }
 
-    .app-icon-squircle {
-      width: 36px;
-      height: 36px;
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 700;
-      font-size: 14px;
+    .progress-bar {
+      width: 100%;
+      height: 6px;
+      background: #24293a;
+      border-radius: 3px;
+      overflow: hidden;
+      margin-top: 8px;
     }
 
-    /* Simulator Control Panel (Right Column) */
-    .control-panel {
+    .progress-fill {
+      height: 100%;
+      background: var(--teal);
+      width: 0%;
+      transition: width 0.3s;
+    }
+
+    .progress-fill.blocked {
+      background: var(--danger);
+    }
+
+    /* Control Panel */
+    .controls-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 24px;
       display: flex;
       flex-direction: column;
-      gap: 24px;
+      gap: 20px;
     }
 
-    .panel-card {
-      background: var(--surface-dark);
-      border: 1px solid var(--card-border);
-      border-radius: 24px;
-      padding: 24px;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-    }
+    .section-title { font-size: 1.1rem; font-weight: 700; color: #fff; margin-bottom: 8px; }
 
-    .panel-title {
-      font-size: 1.15rem;
-      font-weight: 700;
-      margin-bottom: 16px;
-      display: flex;
-      align-items: center;
+    .btn-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
       gap: 10px;
-      color: #ffffff;
     }
 
-    .tab-bar {
-      display: flex;
-      gap: 8px;
-      background: #090a10;
-      padding: 6px;
-      border-radius: 14px;
-      border: 1px solid #1c2030;
-      margin-bottom: 20px;
-    }
-
-    .tab-btn {
-      flex: 1;
-      padding: 10px 14px;
+    button {
+      padding: 10px 16px;
       border-radius: 10px;
-      background: transparent;
-      border: none;
-      color: var(--text-muted);
       font-weight: 600;
       font-size: 0.85rem;
+      border: none;
       cursor: pointer;
       transition: all 0.2s;
     }
 
-    .tab-btn.active {
-      background: #1c2134;
-      color: var(--cyan-soft);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-secondary { background: var(--surface-card); border: 1px solid var(--border); color: var(--text); }
+    .btn-secondary:hover { background: #202534; }
+    .btn-danger { background: rgba(239, 68, 68, 0.15); border: 1px solid var(--danger); color: var(--danger); }
+
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.82rem;
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: var(--surface-card);
+      border: 1px solid var(--border);
     }
 
-    .sim-button {
-      padding: 12px 18px;
-      border-radius: 12px;
-      font-weight: 600;
-      font-size: 0.9rem;
-      border: none;
-      cursor: pointer;
-      background: linear-gradient(135deg, #38bdf8, #6366f1);
-      color: #000;
-      transition: transform 0.2s, box-shadow 0.2s;
-      width: 100%;
-      margin-top: 10px;
-    }
-
-    .sim-button:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(56, 189, 248, 0.35);
-    }
-
-    .spec-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 14px;
-      font-size: 0.85rem;
-    }
-
-    .spec-table td {
-      padding: 8px 6px;
-      border-bottom: 1px solid #1b1e2c;
-    }
-
-    .spec-table td:first-child {
-      color: var(--text-sub);
-    }
-
-    .spec-table td:last-child {
-      color: var(--text-main);
-      font-weight: 600;
-      text-align: right;
-    }
-
-    /* Animations */
-    @keyframes fadeIn {
-      from { opacity: 0; transform: scale(0.98); }
-      to { opacity: 1; transform: scale(1); }
-    }
-
-    @keyframes floatPebble {
-      0% { transform: translateY(0) rotate(0deg); }
-      50% { transform: translateY(-8px) rotate(2deg); }
-      100% { transform: translateY(0) rotate(0deg); }
-    }
-
-    @keyframes pulseGlow {
-      0% { transform: scale(0.9); opacity: 0.3; }
-      100% { transform: scale(1.1); opacity: 0.6; }
-    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .dot-green { background: var(--success); }
+    .dot-amber { background: var(--warning); }
+    .dot-red { background: var(--danger); }
   </style>
 </head>
 <body>
 
+  <!-- Prominent Disclaimer -->
+  <div class="simulator-disclaimer">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
+    </svg>
+    <div>
+      <strong>FocusLock Interactive Simulator — Not Real Android Enforcement.</strong><br>
+      This browser companion demonstrates the state machine and UI transitions for test preview purposes only. It does not inspect real Android applications or enforce OS-level restrictions.
+    </div>
+  </div>
+
   <header>
-    <div class="brand">
-      <div class="brand-icon">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
-          <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/>
-        </svg>
-      </div>
-      <div>
-        <div class="brand-title">FocusLock</div>
-        <div style="font-size: 0.78rem; color: var(--text-sub);">Android Digital Wellbeing • Be-Best Repo</div>
-      </div>
+    <div>
+      <div class="brand-title">FocusLock Simulator</div>
+      <div style="font-size: 0.8rem; color: var(--text-muted);">Deterministic Demo State Machine</div>
     </div>
-    <div class="badge-pill">
-      <span>●</span> 3D AMOLED Live Preview
-    </div>
+    <div class="sim-clock-badge" id="clockDisplay">Simulated Time: 14:00 (Today)</div>
   </header>
 
-  <div class="container">
-    <!-- LEFT: 3D Smartphone Viewport -->
-    <div class="phone-wrapper">
-      <div class="phone-frame">
-        <div class="phone-notch">
-          <div class="camera-lens"></div>
-          <div class="speaker-slot"></div>
-        </div>
-
-        <div class="phone-screen" id="phoneScreen">
-          <!-- 1. LOCK SCREEN (Screenshot Replica) -->
-          <div class="lock-screen-view" id="viewLock">
-            <div>
-              <div class="lock-3d-badge-container">
-                <div class="ambient-glow"></div>
-                <div class="fluid-pebble" title="Click to test pulse interaction" onclick="triggerPebblePulse()">
-                  <svg class="padlock-svg" viewBox="0 0 24 24">
-                    <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/>
-                  </svg>
-                </div>
-              </div>
-
-              <h1 class="headline-stay-focused">Stay focused!</h1>
-              <h2 class="hero-quote">Your future self will thank you.</h2>
-
-              <div class="countdown-pill" id="lockCountdown">
-                Unlocks in 08:29:42
-              </div>
-            </div>
-
-            <div>
-              <p class="lock-footer-text">
-                This app is blocked because you're in a fluid focus session.
-              </p>
-
-              <div class="lock-action-buttons">
-                <button class="btn-lock btn-home" onclick="simulateGoHome()">
-                  <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
-                  Go to Home
-                </button>
-                <button class="btn-lock btn-dash" onclick="switchPhoneView('dashboard')">
-                  Dashboard
-                </button>
-              </div>
-            </div>
+  <div class="main-grid">
+    <!-- LEFT: Phone Mockup -->
+    <div class="phone-frame">
+      <div class="phone-screen">
+        <!-- 1. DASHBOARD VIEW -->
+        <div class="dashboard-view" id="viewDashboard">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="font-size: 1.1rem; font-weight: 800;">FocusLock</h3>
+            <span style="font-size: 0.75rem; color: var(--teal); font-weight: 600;" id="simStatusPill">● Active</span>
           </div>
 
-          <!-- 2. DASHBOARD VIEW -->
-          <div class="dashboard-view" id="viewDashboard">
-            <div class="dash-header">
-              <div>
-                <h3 style="font-size: 1.25rem; font-weight: 800;">FocusLock</h3>
-                <p style="font-size: 0.75rem; color: var(--text-sub);">Protection Active</p>
-              </div>
-              <span class="badge-pill" style="cursor: pointer;" onclick="switchPhoneView('lock')">View Lock</span>
+          <!-- Monitoring Health Status -->
+          <div class="status-indicator" id="permStatusBox">
+            <span class="dot dot-green" id="permDot"></span>
+            <span id="permStatusText">Usage Access & Accessibility Verified</span>
+          </div>
+
+          <!-- Hero Metrics -->
+          <div class="card">
+            <div style="font-size: 0.75rem; color: var(--primary); font-weight: 700; letter-spacing: 0.5px;">TODAY'S SCREEN TIME</div>
+            <div style="font-size: 2rem; font-weight: 800; margin: 4px 0;" id="heroTotalUsed">0m</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">across 4 controlled applications</div>
+            <div style="font-size: 0.72rem; color: var(--teal); margin-top: 4px;" id="heroCountdown">Midnight reset in 10h 00m</div>
+          </div>
+
+          <div style="font-size: 0.85rem; font-weight: 700; margin-top: 4px;">Applications (30m Default)</div>
+
+          <!-- App Items List -->
+          <div id="appListContainer">
+            <!-- Rendered by JS -->
+          </div>
+        </div>
+
+        <!-- 2. BLOCK VIEW -->
+        <div class="lock-view" id="viewLock">
+          <div>
+            <div class="lock-badge">
+              <svg width="34" height="34" fill="white" viewBox="0 0 24 24">
+                <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/>
+              </svg>
+            </div>
+            <h2 style="font-size: 1.4rem; font-weight: 800; margin-bottom: 6px;">Daily Limit Exhausted</h2>
+            <div style="font-size: 0.95rem; color: var(--text-muted);" id="lockAppName">Instagram</div>
+
+            <div style="font-size: 1.1rem; font-weight: 700; margin-top: 24px; line-height: 1.4;">
+              Stay focused!<br>Your future self will thank you.
             </div>
 
-            <!-- Hero Progress Card -->
-            <div class="dash-card">
-              <div style="font-size: 0.72rem; font-weight: 700; color: var(--cyan-soft); letter-spacing: 1px;">TODAY'S SCREEN TIME</div>
-              <div class="progress-ring-box">
-                <div>
-                  <div class="metric-big" id="dashTotalUsed">1h 42m</div>
-                  <div style="font-size: 0.75rem; color: var(--text-sub);">controlled apps usage</div>
-                </div>
-                <div class="metric-pills">
-                  <div class="metric-pill">
-                    <div style="font-size: 1.1rem; font-weight: 800; color: var(--danger-red);" id="dashBlockedCount">2</div>
-                    <div style="font-size: 0.65rem; color: var(--text-sub);">Blocked</div>
-                  </div>
-                  <div class="metric-pill">
-                    <div style="font-size: 1.1rem; font-weight: 800; color: var(--emerald-green);">3</div>
-                    <div style="font-size: 0.65rem; color: var(--text-sub);">Active</div>
-                  </div>
-                </div>
-              </div>
+            <div class="lock-countdown" id="lockCountdown">Resets in 10:00:00</div>
+          </div>
+
+          <div style="width: 100%;">
+            <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 16px; line-height: 1.4;">
+              Today's allowance was exhausted. Daily quota will automatically refresh at local midnight.
+            </p>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn-secondary" style="flex: 1;" onclick="switchView('dashboard')">Home Launcher</button>
+              <button class="btn-primary" style="flex: 1;" onclick="switchView('dashboard')">Dashboard</button>
             </div>
-
-            <!-- Controlled Apps List -->
-            <div style="font-size: 0.88rem; font-weight: 700; margin-top: 4px;">Controlled Distractions</div>
-
-            <div class="app-row" style="border-left: 3px solid var(--danger-red);">
-              <div class="app-info">
-                <div class="app-icon-squircle" style="background: rgba(225, 48, 108, 0.2); color: #e1306c;">IG</div>
-                <div>
-                  <div style="font-size: 0.88rem; font-weight: 700;">Instagram</div>
-                  <div style="font-size: 0.7rem; color: var(--text-sub);">30m / 30m quota</div>
-                </div>
-              </div>
-              <span style="font-size: 0.7rem; font-weight: 700; padding: 4px 8px; border-radius: 6px; background: rgba(244, 63, 94, 0.2); color: var(--danger-red);">BLOCKED</span>
-            </div>
-
-            <div class="app-row" style="border-left: 3px solid var(--danger-red);">
-              <div class="app-info">
-                <div class="app-icon-squircle" style="background: rgba(255, 69, 0, 0.2); color: #ff4500;">RD</div>
-                <div>
-                  <div style="font-size: 0.88rem; font-weight: 700;">Reddit</div>
-                  <div style="font-size: 0.7rem; color: var(--text-sub);">30m / 30m quota</div>
-                </div>
-              </div>
-              <span style="font-size: 0.7rem; font-weight: 700; padding: 4px 8px; border-radius: 6px; background: rgba(244, 63, 94, 0.2); color: var(--danger-red);">BLOCKED</span>
-            </div>
-
-            <div class="app-row">
-              <div class="app-info">
-                <div class="app-icon-squircle" style="background: rgba(37, 211, 102, 0.2); color: #25d366;">WA</div>
-                <div>
-                  <div style="font-size: 0.88rem; font-weight: 700;">WhatsApp</div>
-                  <div style="font-size: 0.7rem; color: var(--text-sub);">18m / 30m quota</div>
-                </div>
-              </div>
-              <span style="font-size: 0.75rem; font-weight: 600; color: var(--cyan-soft);">12m left</span>
-            </div>
-
-            <div class="app-row">
-              <div class="app-info">
-                <div class="app-icon-squircle" style="background: rgba(255, 0, 0, 0.2); color: #ff0000;">YT</div>
-                <div>
-                  <div style="font-size: 0.88rem; font-weight: 700;">YouTube</div>
-                  <div style="font-size: 0.7rem; color: var(--text-sub);">14m / 30m quota</div>
-                </div>
-              </div>
-              <span style="font-size: 0.75rem; font-weight: 600; color: var(--cyan-soft);">16m left</span>
-            </div>
-
-            <button class="btn-lock btn-home" style="margin-top: 10px;" onclick="switchPhoneView('lock')">
-              Return to Blocking Screen
-            </button>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- RIGHT: Interactive Engine Simulator & Engineering Specs -->
-    <div class="control-panel">
-      <!-- Tabs -->
-      <div class="panel-card">
-        <div class="tab-bar">
-          <button class="tab-btn active" onclick="switchControlTab('simulator')">Live Engine Tests</button>
-          <button class="tab-btn" onclick="switchControlTab('architecture')">Architecture Specs</button>
-          <button class="tab-btn" onclick="switchControlTab('database')">Room Schema</button>
+    <!-- RIGHT: Scenario Controls & Time Engine -->
+    <div class="controls-card">
+      <div>
+        <div class="section-title">1. Functional Scenario Controls</div>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">
+          Execute state transitions on the active app (<strong id="activeAppName" style="color: #fff;">Instagram</strong>):
+        </p>
+        <div class="btn-grid">
+          <button class="btn-primary" onclick="simulateAddUsage(10)">+10m Usage</button>
+          <button class="btn-primary" onclick="simulateAddUsage(20)">+20m (Exhaust Quota)</button>
+          <button class="btn-secondary" onclick="simulateChangeLimit(15)">Set 15m Limit</button>
+          <button class="btn-secondary" onclick="simulateChangeLimit(45)">Set 45m Limit</button>
         </div>
+      </div>
 
-        <!-- Tab 1: Live Engine Tests -->
-        <div id="tabContentSimulator">
-          <div class="panel-title">
-            <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
-            Interactive Scenario Simulation
-          </div>
-          <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; margin-bottom: 16px;">
-            Simulate real-time events handled by FocusLock's Accessibility Service and Usage Tracking Engine.
-          </p>
-
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-            <button class="sim-button" onclick="testSimulateAppLaunch('Instagram')">Launch Instagram (Blocked)</button>
-            <button class="sim-button" style="background: #1c2134; color: #fff; border: 1px solid #2e354f;" onclick="testSimulateQuotaIncrement()">Add +5m Usage</button>
-            <button class="sim-button" style="background: #1c2134; color: #fff; border: 1px solid #2e354f;" onclick="testSimulateMidnightReset()">Simulate Midnight Reset</button>
-            <button class="sim-button" style="background: #1c2134; color: #fff; border: 1px solid #2e354f;" onclick="testHardcoreDelay()">Test Hardcore 60s Delay</button>
-          </div>
-
-          <div id="simConsole" style="margin-top: 16px; background: #06070a; border: 1px solid #1a1d2c; border-radius: 12px; padding: 12px; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--cyan-soft); min-height: 70px;">
-            [Ready] FocusLock Tracking Service active.
-          </div>
+      <div>
+        <div class="section-title">2. Injectable Clock / Time Machine</div>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">
+          Advance simulated time deterministically without real waiting:
+        </p>
+        <div class="btn-grid">
+          <button class="btn-secondary" onclick="advanceSimulatedHours(1)">+1 Hour</button>
+          <button class="btn-secondary" onclick="advanceSimulatedHours(4)">+4 Hours</button>
+          <button class="btn-primary" style="background: var(--teal); color: #000;" onclick="advanceToMidnight()">Advance to Midnight (Reset)</button>
         </div>
+      </div>
 
-        <!-- Tab 2: Architecture Specs -->
-        <div id="tabContentArchitecture" style="display: none;">
-          <div class="panel-title">FocusLock Native Android Architecture</div>
-          <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5;">
-            Built following Clean Architecture + MVVM guidelines with Kotlin & Jetpack Compose.
-          </p>
-          <table class="spec-table">
-            <tr><td>Platform</td><td>Android Native (Kotlin 2.0)</td></tr>
-            <tr><td>UI Framework</td><td>Jetpack Compose + Material 3</td></tr>
-            <tr><td>Minimum SDK</td><td>API 26 (Android 8.0 Oreo)</td></tr>
-            <tr><td>Target SDK</td><td>API 35/36 (Android 15+)</td></tr>
-            <tr><td>Local Database</td><td>AndroidX Room with Transactions</td></tr>
-            <tr><td>Tracking Engine</td><td>AccessibilityService + UsageStatsManager</td></tr>
-            <tr><td>Reboot Recovery</td><td>BootReceiver + AlarmManager / WorkManager</td></tr>
-            <tr><td>Security</td><td>PBKDF2 Salted PIN + Android Keystore</td></tr>
-            <tr><td>Cloud Dependency</td><td>100% Local-First (No external server)</td></tr>
-          </table>
+      <div>
+        <div class="section-title">3. Diagnostics & Permissions Test</div>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">
+          Simulate permission revocation states:
+        </p>
+        <div class="btn-grid">
+          <button class="btn-secondary" onclick="toggleSimulatedPermission('accessibility')">Toggle Accessibility</button>
+          <button class="btn-secondary" onclick="toggleSimulatedPermission('usage')">Toggle Usage Access</button>
+          <button class="btn-danger" onclick="resetDemoState()">Reset Demo State</button>
         </div>
+      </div>
 
-        <!-- Tab 3: Room Database Schema -->
-        <div id="tabContentDatabase" style="display: none;">
-          <div class="panel-title">Room Local Database Schema</div>
-          <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5;">
-            5 core tables ensuring persistent state across device restarts:
-          </p>
-          <ul style="margin: 12px 0 0 20px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.8;">
-            <li><strong style="color: #fff;">protected_apps:</strong> packageName (PK), displayName, dailyLimitSeconds, enabled, category</li>
-            <li><strong style="color: #fff;">usage_sessions:</strong> id (PK), packageName, startedAt, endedAt, durationSeconds, source</li>
-            <li><strong style="color: #fff;">daily_usage:</strong> packageName + localDate (Unique), usedSeconds, quotaSeconds, isBlocked</li>
-            <li><strong style="color: #fff;">focus_sessions:</strong> id, startedAt, plannedEndAt, actualEndAt, status</li>
-            <li><strong style="color: #fff;">protection_events:</strong> id, eventType, timestamp, detailsCode</li>
-          </ul>
+      <div style="border-top: 1px solid var(--border); padding-top: 14px;">
+        <div style="font-size: 0.78rem; font-weight: 700; color: var(--text-muted); margin-bottom: 6px;">STATE TRANSITION AUDIT LOG</div>
+        <div id="simLog" style="background: #06070a; border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--teal); height: 90px; overflow-y: auto;">
+          [Init] Demo state initialized. Simulated date: Day 1, 14:00.
         </div>
       </div>
     </div>
   </div>
 
   <script>
-    // Live Midnight Countdown logic
-    function updateCountdown() {
-      const now = new Date();
-      const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-      const diffMs = tomorrow - now;
-      
-      const hours = Math.floor(diffMs / (1000 * 60 * 60)).toString().padStart(2, '0');
-      const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60)).toString().padStart(2, '0');
-      const seconds = Math.floor((diffMs % (1000 * 60)) / 1000).toString().padStart(2, '0');
-      
-      const str = `Unlocks in ${hours}:${minutes}:${seconds}`;
-      const elem = document.getElementById('lockCountdown');
-      if (elem) elem.innerText = str;
-    }
-    setInterval(updateCountdown, 1000);
-    updateCountdown();
+    // State Model
+    const demoState = {
+      simulatedHour: 14,
+      simulatedDay: 1,
+      hasAccessibility: true,
+      hasUsageAccess: true,
+      activeAppPkg: 'com.instagram.android',
+      apps: [
+        { pkg: 'com.instagram.android', name: 'Instagram', cat: 'Social', limit: 30, used: 0, protected: true },
+        { pkg: 'com.google.android.youtube', name: 'YouTube', cat: 'Video', limit: 30, used: 0, protected: true },
+        { pkg: 'com.reddit.frontpage', name: 'Reddit', cat: 'Community', limit: 30, used: 0, protected: true },
+        { pkg: 'com.whatsapp', name: 'WhatsApp', cat: 'Messaging', limit: 30, used: 0, protected: false }
+      ]
+    };
 
-    // View Switching
-    function switchPhoneView(view) {
-      const lockView = document.getElementById('viewLock');
-      const dashView = document.getElementById('viewDashboard');
-      if (view === 'dashboard') {
-        lockView.style.display = 'none';
-        dashView.style.display = 'flex';
-        logConsole("[UI] Switched to FocusLock Dashboard view.");
+    function renderUI() {
+      // Clock
+      const hStr = demoState.simulatedHour.toString().padStart(2, '0');
+      document.getElementById('clockDisplay').innerText = `Simulated Time: ${hStr}:00 (Day ${demoState.simulatedDay})`;
+
+      const hoursUntilMidnight = (24 - demoState.simulatedHour) % 24;
+      document.getElementById('heroCountdown').innerText = `Midnight reset in ${hoursUntilMidnight}h 00m`;
+      document.getElementById('lockCountdown').innerText = `Resets in ${hoursUntilMidnight.toString().padStart(2, '0')}:00:00`;
+
+      // Permissions Box
+      const permDot = document.getElementById('permDot');
+      const permText = document.getElementById('permStatusText');
+      if (demoState.hasAccessibility && demoState.hasUsageAccess) {
+        permDot.className = 'dot dot-green';
+        permText.innerText = 'Usage Access & Accessibility Verified';
       } else {
-        dashView.style.display = 'none';
-        lockView.style.display = 'flex';
-        logConsole("[UI] Switched to 3D Blocking Lock Screen.");
+        permDot.className = 'dot dot-amber';
+        permText.innerText = 'Warning: Permission Revoked (Monitoring Incomplete)';
+      }
+
+      // App list
+      const container = document.getElementById('appListContainer');
+      container.innerHTML = '';
+
+      let totalUsed = 0;
+      demoState.apps.forEach(app => {
+        if (app.protected) totalUsed += app.used;
+
+        const isExhausted = app.protected && app.used >= app.limit;
+        const progress = Math.min(100, Math.round((app.used / app.limit) * 100));
+
+        const div = document.createElement('div');
+        div.className = `app-item ${app.pkg === demoState.activeAppPkg ? 'selected' : ''}`;
+        div.onclick = () => selectActiveApp(app.pkg);
+
+        div.innerHTML = `
+          <div style="flex: 1;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <span style="font-weight: 700; font-size: 0.9rem;">${app.name}</span>
+                <span style="font-size: 0.72rem; color: var(--text-muted); margin-left: 6px;">${app.cat}</span>
+              </div>
+              <span style="font-size: 0.75rem; font-weight: 700; color: ${isExhausted ? 'var(--danger)' : 'var(--teal)'};">
+                ${isExhausted ? 'BLOCKED' : `${app.used}m / ${app.limit}m`}
+              </span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill ${isExhausted ? 'blocked' : ''}" style="width: ${progress}%;"></div>
+            </div>
+          </div>
+        `;
+        container.appendChild(div);
+      });
+
+      document.getElementById('heroTotalUsed').innerText = `${totalUsed}m`;
+
+      const activeApp = demoState.apps.find(a => a.pkg === demoState.activeAppPkg);
+      if (activeApp) {
+        document.getElementById('activeAppName').innerText = activeApp.name;
+        document.getElementById('lockAppName').innerText = activeApp.name;
       }
     }
 
-    function simulateGoHome() {
-      logConsole("[Accessibility] User clicked 'Go to Home'. Returning to launcher.");
-      alert("Simulated: Returning to Android Home Launcher.");
+    function selectActiveApp(pkg) {
+      demoState.activeAppPkg = pkg;
+      renderUI();
+      logAudit(`Selected active application: ${pkg}`);
     }
 
-    function triggerPebblePulse() {
-      const pebble = document.querySelector('.fluid-pebble');
-      pebble.style.transform = 'scale(1.15) rotate(5deg)';
-      setTimeout(() => {
-        pebble.style.transform = '';
-      }, 300);
-      logConsole("[Physics] Pebble squircle tactile feedback triggered.");
+    function switchView(view) {
+      document.getElementById('viewDashboard').style.display = view === 'dashboard' ? 'flex' : 'none';
+      document.getElementById('viewLock').style.display = view === 'lock' ? 'flex' : 'none';
     }
 
-    // Tab Switching
-    function switchControlTab(tab) {
-      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-      event.target.classList.add('active');
+    function simulateAddUsage(minutes) {
+      const app = demoState.apps.find(a => a.pkg === demoState.activeAppPkg);
+      if (!app) return;
 
-      document.getElementById('tabContentSimulator').style.display = tab === 'simulator' ? 'block' : 'none';
-      document.getElementById('tabContentArchitecture').style.display = tab === 'architecture' ? 'block' : 'none';
-      document.getElementById('tabContentDatabase').style.display = tab === 'database' ? 'block' : 'none';
+      app.used += minutes;
+      logAudit(`[Usage] Added +${minutes}m to ${app.name}. Total today: ${app.used}m/${app.limit}m.`);
+
+      if (app.used >= app.limit && app.protected) {
+        logAudit(`[Quota] Quota exhausted for ${app.name}! AccessibilityService triggers Lock Screen.`);
+        switchView('lock');
+      }
+      renderUI();
     }
 
-    function logConsole(msg) {
-      const consoleElem = document.getElementById('simConsole');
-      const time = new Date().toLocaleTimeString();
-      consoleElem.innerHTML = `[${time}] ${msg}<br>` + consoleElem.innerHTML;
+    function simulateChangeLimit(newLimit) {
+      const app = demoState.apps.find(a => a.pkg === demoState.activeAppPkg);
+      if (!app) return;
+      app.limit = newLimit;
+      logAudit(`[Limit] Updated daily limit for ${app.name} to ${newLimit}m.`);
+      renderUI();
     }
 
-    // Simulations
-    function testSimulateAppLaunch(appName) {
-      switchPhoneView('lock');
-      logConsole(`[Blocker] AccessibilityService intercepted ${appName} (Quota 30/30 min exhausted). Displaying 3D Lock Overlay!`);
+    function advanceSimulatedHours(hrs) {
+      demoState.simulatedHour += hrs;
+      if (demoState.simulatedHour >= 24) {
+        demoState.simulatedDay += Math.floor(demoState.simulatedHour / 24);
+        demoState.simulatedHour = demoState.simulatedHour % 24;
+        logAudit(`[Midnight Boundary] Calendar day advanced to Day ${demoState.simulatedDay}! Quotas reset.`);
+        demoState.apps.forEach(a => a.used = 0);
+        switchView('dashboard');
+      } else {
+        logAudit(`[Clock] Advanced time by +${hrs}h. Current hour: ${demoState.simulatedHour}:00.`);
+      }
+      renderUI();
     }
 
-    function testSimulateQuotaIncrement() {
-      logConsole(`[Tracking] Foreground session: WhatsApp +5m accumulated. Database updated.`);
-      document.getElementById('dashTotalUsed').innerText = '1h 47m';
+    function advanceToMidnight() {
+      demoState.simulatedDay += 1;
+      demoState.simulatedHour = 0;
+      logAudit(`[Midnight Boundary] Advanced directly to 00:00 (Day ${demoState.simulatedDay}). All app quotas reset!`);
+      demoState.apps.forEach(a => a.used = 0);
+      switchView('dashboard');
+      renderUI();
     }
 
-    function testSimulateMidnightReset() {
-      logConsole(`[Scheduler] Midnight calendar day boundary reached. Daily usage quotas reset to 0/30m for all apps.`);
-      document.getElementById('dashTotalUsed').innerText = '0m';
-      document.getElementById('dashBlockedCount').innerText = '0';
-      alert("Midnight reset simulated! All daily allowances restored.");
+    function toggleSimulatedPermission(type) {
+      if (type === 'accessibility') {
+        demoState.hasAccessibility = !demoState.hasAccessibility;
+        logAudit(`[Permission] Accessibility Service toggled: ${demoState.hasAccessibility ? 'ENABLED' : 'REVOKED'}.`);
+      } else {
+        demoState.hasUsageAccess = !demoState.hasUsageAccess;
+        logAudit(`[Permission] Usage Access toggled: ${demoState.hasUsageAccess ? 'ENABLED' : 'REVOKED'}.`);
+      }
+      renderUI();
     }
 
-    function testHardcoreDelay() {
-      logConsole(`[Hardcore] Unlock requested. 60-second friction cooldown timer started.`);
-      let secs = 60;
-      const interval = setInterval(() => {
-        secs--;
-        logConsole(`[Hardcore] Friction wait: ${secs}s remaining...`);
-        if (secs <= 0) {
-          clearInterval(interval);
-          logConsole(`[Hardcore] Cooldown finished. PIN verification prompt unlocked.`);
-          alert("Cooldown expired. You can now enter your PIN to modify settings.");
-        }
-      }, 1000);
+    function resetDemoState() {
+      demoState.simulatedHour = 14;
+      demoState.simulatedDay = 1;
+      demoState.hasAccessibility = true;
+      demoState.hasUsageAccess = true;
+      demoState.apps.forEach(a => a.used = 0);
+      switchView('dashboard');
+      logAudit(`[Reset] Demo state reset to initial values.`);
+      renderUI();
     }
+
+    function logAudit(msg) {
+      const log = document.getElementById('simLog');
+      const time = `${demoState.simulatedHour.toString().padStart(2, '0')}:00`;
+      log.innerHTML = `[${time}] ${msg}<br>` + log.innerHTML;
+    }
+
+    // Initialize
+    renderUI();
   </script>
 </body>
 </html>

@@ -1,15 +1,12 @@
 package com.focuslock.app.presentation
 
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.drawable.Drawable
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +21,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -33,6 +31,7 @@ import androidx.compose.material.icons.filled.SpaceDashboard
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -44,25 +43,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.focuslock.app.R
-import com.focuslock.app.core.designsystem.AmoledBackground
-import com.focuslock.app.core.designsystem.CyanAccent
+import androidx.core.graphics.drawable.toBitmap
+import com.focuslock.app.core.designsystem.BrandIndigo
+import com.focuslock.app.core.designsystem.BrandTeal
 import com.focuslock.app.core.designsystem.FocusLockTheme
-import com.focuslock.app.core.designsystem.IridescentPebbleBrush
-import com.focuslock.app.core.designsystem.PurpleAccent
-import com.focuslock.app.core.designsystem.TextMuted
-import com.focuslock.app.core.designsystem.TextPrimary
-import com.focuslock.app.core.designsystem.TextSecondary
 import com.focuslock.app.core.util.TimeUtils
 import kotlinx.coroutines.delay
 
@@ -71,12 +61,21 @@ class BlockingActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val appName = intent.getStringExtra(EXTRA_APP_NAME) ?: "Selected App"
+        val packageName = intent.getStringExtra(EXTRA_PACKAGE_NAME) ?: ""
+        val appName = intent.getStringExtra(EXTRA_APP_NAME) ?: "Selected Application"
+
+        val appIcon: Drawable? = try {
+            if (packageName.isNotBlank()) packageManager.getApplicationIcon(packageName) else null
+        } catch (e: Exception) {
+            null
+        }
 
         setContent {
             FocusLockTheme {
                 BlockingScreen(
+                    packageName = packageName,
                     appName = appName,
+                    appIcon = appIcon,
                     onGoHome = {
                         val homeIntent = Intent(Intent.ACTION_MAIN).apply {
                             addCategory(Intent.CATEGORY_HOME)
@@ -105,7 +104,9 @@ class BlockingActivity : ComponentActivity() {
 
 @Composable
 fun BlockingScreen(
+    packageName: String,
     appName: String,
+    appIcon: Drawable?,
     onGoHome: () -> Unit,
     onOpenDashboard: () -> Unit
 ) {
@@ -120,149 +121,122 @@ fun BlockingScreen(
         }
     }
 
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse_transition")
-    val scalePulse by infiniteTransition.animateFloat(
-        initialValue = 0.96f,
-        targetValue = 1.04f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2400, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "lock_scale"
-    )
-
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(AmoledBackground)
+            .background(Color(0xFF090A0F))
             .statusBarsPadding()
             .navigationBarsPadding()
-            .padding(horizontal = 28.dp, vertical = 24.dp)
+            .padding(horizontal = 24.dp, vertical = 24.dp)
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize(),
+            modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            Spacer(modifier = Modifier.height(30.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-            // Upper 3D Iridescent Pebble & Floating Lock Badge (Exact Match with Reference)
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
+            // Upper Lock Icon and App Identity
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                // Padlock Badge
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .size(130.dp)
-                        .scale(scalePulse)
+                        .size(80.dp)
+                        .clip(RoundedCornerShape(26.dp))
+                        .background(BrandIndigo)
                 ) {
-                    // Ambient radial glow behind squircle
-                    Box(
-                        modifier = Modifier
-                            .size(140.dp)
-                            .clip(CircleShape)
-                            .background(
-                                Brush.radialGradient(
-                                    colors = listOf(
-                                        CyanAccent.copy(alpha = 0.35f),
-                                        PurpleAccent.copy(alpha = 0.20f),
-                                        Color.Transparent
-                                    )
-                                )
-                            )
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = "App Blocked",
+                        tint = Color.White,
+                        modifier = Modifier.size(36.dp)
                     )
+                }
 
-                    // 3D Iridescent Squircle Pebble
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(96.dp)
-                            .shadow(
-                                elevation = 24.dp,
-                                shape = RoundedCornerShape(32.dp),
-                                ambientColor = CyanAccent,
-                                spotColor = PurpleAccent
-                            )
-                            .clip(RoundedCornerShape(32.dp))
-                            .background(IridescentPebbleBrush)
-                            .border(
-                                width = 1.5.dp,
-                                brush = Brush.linearGradient(
-                                    listOf(Color.White.copy(alpha = 0.7f), Color.Transparent)
-                                ),
-                                shape = RoundedCornerShape(32.dp)
-                            )
-                    ) {
-                        // Padlock icon
-                        Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = "Focus Lock",
-                            tint = Color.White,
-                            modifier = Modifier.size(42.dp)
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Text(
+                    text = "Daily Limit Exhausted",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Blocked App Row
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                ) {
+                    if (appIcon != null) {
+                        val bitmap = appIcon.toBitmap(64, 64, Bitmap.Config.ARGB_8888)
+                        Image(
+                            bitmap = bitmap.asImageBitmap(),
+                            contentDescription = appName,
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(RoundedCornerShape(8.dp))
                         )
+                        Spacer(modifier = Modifier.width(8.dp))
                     }
+                    Text(
+                        text = appName,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFFCBD5E1)
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(36.dp))
 
-                // Hero Headline
+                // Motivational Text
                 Text(
-                    text = stringResource(R.string.stay_focused),
-                    fontSize = 32.sp,
+                    text = "Stay focused!\nYour future self will thank you.",
+                    fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
-                    color = TextPrimary,
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.height(48.dp))
-
-                // Hero Motivational Quote from User Reference
-                Text(
-                    text = stringResource(R.string.future_self_quote),
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary,
+                    color = Color.White,
                     textAlign = TextAlign.Center,
-                    lineHeight = 32.sp,
-                    modifier = Modifier.padding(horizontal = 16.dp)
+                    lineHeight = 28.sp
                 )
 
-                Spacer(modifier = Modifier.height(28.dp))
+                Spacer(modifier = Modifier.height(24.dp))
 
                 // Live Midnight Countdown Pill
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(50.dp))
-                        .background(Color(0xFF141724))
-                        .border(1.dp, Color(0xFF282E47), RoundedCornerShape(50.dp))
+                        .background(Color(0xFF131722))
+                        .border(1.dp, Color(0xFF262E44), RoundedCornerShape(50.dp))
                         .padding(horizontal = 20.dp, vertical = 10.dp)
                 ) {
                     Text(
-                        text = stringResource(R.string.unlocks_in, TimeUtils.formatCountdownSeconds(secondsUntilMidnight)),
+                        text = "Allowance resets in ${TimeUtils.formatCountdown(secondsUntilMidnight)}",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = CyanAccent
+                        color = BrandTeal
                     )
                 }
             }
 
-            // Bottom Section: Explanatory Subtitle & Exit Actions
+            // Bottom Actions Section
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = "This app is blocked because you're in a fluid focus session.",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Normal,
-                    color = TextMuted,
+                    text = "This application is restricted because today's screen time quota was consumed. Your allowance will automatically refresh at midnight.",
+                    fontSize = 12.sp,
+                    color = Color(0xFF64748B),
                     textAlign = TextAlign.Center,
-                    lineHeight = 18.sp,
-                    modifier = Modifier.padding(horizontal = 24.dp)
+                    lineHeight = 17.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp)
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -272,11 +246,11 @@ fun BlockingScreen(
                         onClick = onGoHome,
                         modifier = Modifier
                             .weight(1f)
-                            .height(52.dp),
-                        shape = RoundedCornerShape(16.dp),
+                            .height(50.dp),
+                        shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF1E2232),
-                            contentColor = TextPrimary
+                            containerColor = Color(0xFF1E2230),
+                            contentColor = Color.White
                         )
                     ) {
                         Icon(
@@ -285,21 +259,18 @@ fun BlockingScreen(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.size(8.dp))
-                        Text(
-                            text = stringResource(R.string.go_to_home),
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Text(text = "Go to Home", fontWeight = FontWeight.SemiBold)
                     }
 
                     OutlinedButton(
                         onClick = onOpenDashboard,
                         modifier = Modifier
                             .weight(1f)
-                            .height(52.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, CyanAccent.copy(alpha = 0.5f)),
+                            .height(50.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, BrandTeal.copy(alpha = 0.5f)),
                         colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = CyanAccent
+                            contentColor = BrandTeal
                         )
                     ) {
                         Icon(
@@ -308,10 +279,7 @@ fun BlockingScreen(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.size(8.dp))
-                        Text(
-                            text = "Dashboard",
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Text(text = "Dashboard", fontWeight = FontWeight.SemiBold)
                     }
                 }
             }

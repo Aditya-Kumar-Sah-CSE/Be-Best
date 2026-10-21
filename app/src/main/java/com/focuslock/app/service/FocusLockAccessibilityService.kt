@@ -24,10 +24,12 @@ class FocusLockAccessibilityService : AccessibilityService() {
 
         val packageName = event.packageName?.toString() ?: return
 
-        // Ignore our own app screens and system UI like notification bar
+        // Exclude system UI components, launchers, and FocusLock itself
         if (packageName == applicationContext.packageName ||
             packageName == "com.android.systemui" ||
-            packageName.contains("launcher")
+            packageName.contains("launcher") ||
+            packageName.contains("trebuchet") ||
+            packageName == "android"
         ) {
             recordPreviousSession()
             currentForegroundPackage = null
@@ -39,7 +41,7 @@ class FocusLockAccessibilityService : AccessibilityService() {
             currentForegroundPackage = packageName
             currentSessionStartElapsed = SystemClock.elapsedRealtime()
 
-            // Check if app is blocked
+            // Evaluate authoritative quota and enforce blocking if exhausted
             checkAndEnforceBlock(packageName)
         }
     }
@@ -48,8 +50,8 @@ class FocusLockAccessibilityService : AccessibilityService() {
         serviceScope.launch {
             val app = FocusLockApp.instance.appRepository.getApp(packageName)
             if (app != null && app.enabled) {
-                val isBlocked = FocusLockApp.instance.usageRepository.isAppBlocked(packageName)
-                if (isBlocked) {
+                val evaluation = FocusLockApp.instance.quotaEngine.evaluateQuota(packageName)
+                if (evaluation.isBlocked) {
                     launchBlockScreen(packageName, app.displayName)
                 }
             }
@@ -60,7 +62,11 @@ class FocusLockAccessibilityService : AccessibilityService() {
         val intent = Intent(this, BlockingActivity::class.java).apply {
             putExtra(BlockingActivity.EXTRA_PACKAGE_NAME, packageName)
             putExtra(BlockingActivity.EXTRA_APP_NAME, appName)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NO_ANIMATION)
+            addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_NO_ANIMATION
+            )
         }
         startActivity(intent)
     }
@@ -68,13 +74,13 @@ class FocusLockAccessibilityService : AccessibilityService() {
     private fun recordPreviousSession() {
         val prevPkg = currentForegroundPackage ?: return
         val start = currentSessionStartElapsed
-        if (start > 0) {
-            val elapsedSecs = (SystemClock.elapsedRealtime() - start) / 1000
-            if (elapsedSecs > 1) {
+        if (start > 0L) {
+            val elapsedSecs = (SystemClock.elapsedRealtime() - start) / 1000L
+            if (elapsedSecs >= 1L) {
                 serviceScope.launch {
-                    FocusLockApp.instance.usageRepository.recordForegroundSession(
+                    FocusLockApp.instance.quotaEngine.recordUsage(
                         packageName = prevPkg,
-                        durationSeconds = elapsedSecs,
+                        additionalSeconds = elapsedSecs,
                         source = "ACCESSIBILITY"
                     )
                 }

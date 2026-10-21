@@ -4,7 +4,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.focuslock.app.FocusLockApp
-import com.focuslock.app.domain.usecase.ResetMidnightQuotaUseCase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -21,15 +20,9 @@ class TimeChangeReceiver : BroadcastReceiver() {
             CoroutineScope(Dispatchers.IO).launch {
                 app.usageRepository.logProtectionEvent(
                     eventType = "TIMEZONE_CHANGED",
-                    details = "System clock or timezone event detected: $action"
+                    details = "System time or timezone change detected ($action); evaluating daily boundaries"
                 )
-
-                // Validate calendar date boundary
-                val resetUseCase = ResetMidnightQuotaUseCase(
-                    app.database.protectedAppDao(),
-                    app.database.usageDao()
-                )
-                resetUseCase.resetQuotasForNewDay()
+                app.quotaEngine.checkAndPerformMidnightReset()
             }
         }
     }

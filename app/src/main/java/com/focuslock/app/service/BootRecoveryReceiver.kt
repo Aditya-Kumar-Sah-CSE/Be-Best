@@ -4,7 +4,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.focuslock.app.FocusLockApp
-import com.focuslock.app.domain.usecase.ResetMidnightQuotaUseCase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -17,15 +16,11 @@ class BootRecoveryReceiver : BroadcastReceiver() {
         ) {
             val app = FocusLockApp.instance
             CoroutineScope(Dispatchers.IO).launch {
-                // Log reboot event
-                app.usageRepository.logProtectionEvent("REBOOT", "Device reboot detected; validating quota state")
-
-                // Ensure quotas are properly initialized for current calendar day
-                val resetUseCase = ResetMidnightQuotaUseCase(
-                    app.database.protectedAppDao(),
-                    app.database.usageDao()
+                app.usageRepository.logProtectionEvent(
+                    eventType = "REBOOT",
+                    details = "Device reboot completed; recovering persisted quotas"
                 )
-                resetUseCase.resetQuotasForNewDay()
+                app.quotaEngine.checkAndPerformMidnightReset()
             }
         }
     }

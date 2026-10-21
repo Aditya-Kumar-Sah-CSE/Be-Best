@@ -6,9 +6,12 @@ import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
 import com.focuslock.app.core.security.PinSecurityManager
+import com.focuslock.app.core.usage.RealUsageTracker
+import com.focuslock.app.core.util.SystemTimeProvider
 import com.focuslock.app.data.local.FocusLockDatabase
 import com.focuslock.app.data.repository.AppRepositoryImpl
 import com.focuslock.app.data.repository.UsageRepositoryImpl
+import com.focuslock.app.domain.engine.QuotaEngine
 
 class FocusLockApp : Application() {
 
@@ -24,17 +27,37 @@ class FocusLockApp : Application() {
     lateinit var usageRepository: UsageRepositoryImpl
         private set
 
+    lateinit var quotaEngine: QuotaEngine
+        private set
+
+    lateinit var realUsageTracker: RealUsageTracker
+        private set
+
     override fun onCreate() {
         super.onCreate()
         instance = this
 
-        // Initialize Local Room Database
+        // Local Room Database
         database = FocusLockDatabase.getInstance(this)
         pinSecurityManager = PinSecurityManager(this)
 
-        // Repositories
-        appRepository = AppRepositoryImpl(database.protectedAppDao(), packageManager)
+        // Repositories & Engine
+        appRepository = AppRepositoryImpl(database.protectedAppDao(), this)
         usageRepository = UsageRepositoryImpl(database.usageDao(), this)
+
+        quotaEngine = QuotaEngine(
+            protectedAppDao = database.protectedAppDao(),
+            usageDao = database.usageDao(),
+            focusSessionDao = database.focusSessionDao(),
+            timeProvider = SystemTimeProvider()
+        )
+
+        realUsageTracker = RealUsageTracker(
+            context = this,
+            protectedAppDao = database.protectedAppDao(),
+            usageDao = database.usageDao(),
+            timeProvider = SystemTimeProvider()
+        )
 
         createNotificationChannels()
     }

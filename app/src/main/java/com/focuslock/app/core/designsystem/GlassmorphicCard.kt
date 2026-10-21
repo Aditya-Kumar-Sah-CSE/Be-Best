@@ -6,39 +6,58 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun GlassmorphicCard(
+fun FocusCard(
     modifier: Modifier = Modifier,
-    cornerRadius: Dp = 24.dp,
-    backgroundColor: Color = SurfaceCard.copy(alpha = 0.85f),
+    cornerRadius: Dp = 16.dp,
+    shape: Shape = RoundedCornerShape(cornerRadius),
+    backgroundColor: Color = MaterialTheme.colorScheme.surfaceVariant,
+    borderColor: Color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+    contentPadding: Dp = 16.dp,
     content: @Composable BoxScope.() -> Unit
 ) {
-    val shape = RoundedCornerShape(cornerRadius)
-
     Box(
         modifier = modifier
             .shadow(
-                elevation = 16.dp,
+                elevation = 2.dp,
                 shape = shape,
-                ambientColor = Color(0x66000000),
-                spotColor = CyanAccent.copy(alpha = 0.25f)
+                ambientColor = Color(0x1A000000),
+                spotColor = Color(0x1A000000)
             )
             .clip(shape)
             .background(backgroundColor)
             .border(
                 width = 1.dp,
-                brush = CardGlowBorder,
+                color = borderColor,
                 shape = shape
             )
-            .padding(20.dp),
+            .padding(contentPadding),
+        content = content
+    )
+}
+
+// Retain GlassmorphicCard as alias for seamless backward compatibility
+@Composable
+fun GlassmorphicCard(
+    modifier: Modifier = Modifier,
+    cornerRadius: Dp = 16.dp,
+    backgroundColor: Color = MaterialTheme.colorScheme.surfaceVariant,
+    content: @Composable BoxScope.() -> Unit
+) {
+    FocusCard(
+        modifier = modifier,
+        cornerRadius = cornerRadius,
+        backgroundColor = backgroundColor,
         content = content
     )
 }

@@ -8,10 +8,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.rememberNavController
-import com.focuslock.app.core.designsystem.AmoledBackground
 import com.focuslock.app.core.designsystem.FocusLockTheme
+import com.focuslock.app.core.designsystem.ThemeMode
 import com.focuslock.app.presentation.navigation.FocusLockNavGraph
 import com.focuslock.app.presentation.navigation.Screen
 
@@ -22,15 +27,21 @@ class MainActivity : ComponentActivity() {
 
         val prefs = getSharedPreferences("focuslock_app_prefs", MODE_PRIVATE)
         val isOnboarded = prefs.getBoolean("is_onboarded", false)
+        val savedTheme = prefs.getString("theme_mode", ThemeMode.SYSTEM.name) ?: ThemeMode.SYSTEM.name
+        val themeMode = try {
+            ThemeMode.valueOf(savedTheme)
+        } catch (e: Exception) {
+            ThemeMode.SYSTEM
+        }
 
         setContent {
-            FocusLockTheme {
+            FocusLockTheme(themeMode = themeMode) {
                 val navController = rememberNavController()
 
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(AmoledBackground)
+                        .background(MaterialTheme.colorScheme.background)
                         .statusBarsPadding()
                         .navigationBarsPadding()
                 ) {

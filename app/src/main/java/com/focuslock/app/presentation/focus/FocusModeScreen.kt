@@ -15,10 +15,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
@@ -27,6 +29,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,20 +42,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.focuslock.app.core.designsystem.AmoledBackground
-import com.focuslock.app.core.designsystem.CyanAccent
+import com.focuslock.app.core.designsystem.BrandIndigo
+import com.focuslock.app.core.designsystem.BrandTeal
 import com.focuslock.app.core.designsystem.DangerRed
-import com.focuslock.app.core.designsystem.GlassmorphicCard
-import com.focuslock.app.core.designsystem.PurpleAccent
-import com.focuslock.app.core.designsystem.TextMuted
-import com.focuslock.app.core.designsystem.TextPrimary
-import com.focuslock.app.core.designsystem.TextSecondary
+import com.focuslock.app.core.designsystem.FocusCard
 import com.focuslock.app.core.util.TimeUtils
 import kotlinx.coroutines.delay
 
@@ -83,7 +81,7 @@ fun FocusModeScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(AmoledBackground)
+            .background(MaterialTheme.colorScheme.background)
             .padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
@@ -97,102 +95,87 @@ fun FocusModeScreen(
             ) {
                 IconButton(onClick = onBack) {
                     Icon(
-                        imageVector = Icons.Default.ArrowBack,
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
-                        tint = TextPrimary
+                        tint = MaterialTheme.colorScheme.onBackground
                     )
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
                     Text(
-                        text = "Focus Session",
+                        text = "Focus Mode",
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
-                        color = TextPrimary
+                        color = MaterialTheme.colorScheme.onBackground
                     )
                     Text(
-                        text = "Lock all distracting apps during your deep work block",
+                        text = "Restrict distraction apps during your deep work block",
                         fontSize = 12.sp,
-                        color = TextMuted
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
         }
 
-        // Center 3D Timer Ring
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
+        // Center Timer Progress Ring
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Box(
                 contentAlignment = Alignment.Center,
-                modifier = Modifier.size(260.dp)
+                modifier = Modifier.size(240.dp)
             ) {
-                // Background radial glow
-                Box(
-                    modifier = Modifier
-                        .size(240.dp)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.radialGradient(
-                                colors = listOf(
-                                    PurpleAccent.copy(alpha = 0.25f),
-                                    CyanAccent.copy(alpha = 0.1f),
-                                    Color.Transparent
-                                )
-                            )
-                        )
-                )
-
-                // Track ring
                 CircularProgressIndicator(
                     progress = { 1f },
-                    modifier = Modifier.size(240.dp),
-                    color = Color(0xFF1E2235),
-                    strokeWidth = 12.dp
+                    modifier = Modifier.size(220.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    strokeWidth = 10.dp
                 )
 
-                // Active animated progress ring
                 CircularProgressIndicator(
                     progress = { animatedProgress },
-                    modifier = Modifier.size(240.dp),
-                    color = PurpleAccent,
-                    strokeWidth = 12.dp,
+                    modifier = Modifier.size(220.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    strokeWidth = 10.dp,
                     strokeCap = StrokeCap.Round
                 )
 
-                // Inner Time Display
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = TimeUtils.formatCountdownSeconds(secondsRemaining.toLong()),
-                        fontSize = 38.sp,
+                        text = TimeUtils.formatCountdown(secondsRemaining.toLong()),
+                        fontSize = 36.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        color = TextPrimary,
+                        color = MaterialTheme.colorScheme.onBackground,
                         letterSpacing = 1.sp
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = if (isRunning) "Deep Focus Active" else "Ready to Focus",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
-                        color = if (isRunning) CyanAccent else TextSecondary
+                        color = if (isRunning) BrandTeal else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-            // Preset duration selectors (only when not running)
+            // Presets
             if (!isRunning) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    listOf(15, 25, 50, 90).forEach { mins ->
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    listOf(15, 25, 45, 60).forEach { mins ->
                         val isSelected = selectedDurationMinutes == mins
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (isSelected) PurpleAccent else Color(0xFF181B28))
-                                .border(1.dp, if (isSelected) CyanAccent else Color(0xFF282E44), RoundedCornerShape(12.dp))
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(
+                                    if (isSelected) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.surfaceVariant
+                                )
+                                .border(
+                                    width = 1.dp,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                                    shape = RoundedCornerShape(10.dp)
+                                )
                                 .clickable {
                                     selectedDurationMinutes = mins
                                     secondsRemaining = mins * 60
@@ -202,7 +185,8 @@ fun FocusModeScreen(
                             Text(
                                 text = "${mins}m",
                                 fontWeight = FontWeight.Bold,
-                                color = if (isSelected) Color.White else TextSecondary
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                                else MaterialTheme.colorScheme.onSurface
                             )
                         }
                     }
@@ -210,40 +194,66 @@ fun FocusModeScreen(
             }
         }
 
-        // Bottom Controls
+        // Bottom Controls & Disclaimer
         Column(
             modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            FocusCard(
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = 12.dp
+            ) {
+                Row(
+                    verticalAlignment = Alignment.Top,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Note: FocusLock blocks designated distraction applications through Android Accessibility inspection. Normal third-party apps cannot override system reboot, force-stop, or secure system settings.",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 15.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
             if (!isRunning) {
                 Button(
                     onClick = { isRunning = true },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = PurpleAccent)
+                        .height(52.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
-                    Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, tint = Color.White)
+                    Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(text = "Start Focus Session", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(text = "Start Focus Session", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
                 }
             } else {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Button(
                         onClick = { isRunning = false },
                         modifier = Modifier
                             .weight(1f)
-                            .height(54.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E2235))
+                            .height(50.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                     ) {
-                        Icon(imageVector = Icons.Default.Pause, contentDescription = null, tint = CyanAccent)
+                        Icon(imageVector = Icons.Default.Pause, contentDescription = null)
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(text = "Pause", color = TextPrimary)
+                        Text(text = "Pause", color = MaterialTheme.colorScheme.onSurface)
                     }
 
                     OutlinedButton(
@@ -253,19 +263,19 @@ fun FocusModeScreen(
                         },
                         modifier = Modifier
                             .weight(1f)
-                            .height(54.dp),
-                        shape = RoundedCornerShape(16.dp),
+                            .height(50.dp),
+                        shape = RoundedCornerShape(14.dp),
                         border = androidx.compose.foundation.BorderStroke(1.dp, DangerRed.copy(alpha = 0.5f)),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = DangerRed)
                     ) {
                         Icon(imageVector = Icons.Default.Stop, contentDescription = null)
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(text = "End Session", fontWeight = FontWeight.SemiBold)
+                        Text(text = "End", fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(30.dp))
+            Spacer(modifier = Modifier.height(28.dp))
         }
     }
 }

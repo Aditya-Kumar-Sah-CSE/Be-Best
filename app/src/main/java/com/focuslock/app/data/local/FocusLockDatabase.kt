@@ -7,11 +7,13 @@ import androidx.room.RoomDatabase
 import com.focuslock.app.data.local.dao.FocusSessionDao
 import com.focuslock.app.data.local.dao.ProtectedAppDao
 import com.focuslock.app.data.local.dao.UsageDao
+import com.focuslock.app.data.local.dao.UserSettingsDao
 import com.focuslock.app.data.local.entity.DailyUsageEntity
 import com.focuslock.app.data.local.entity.FocusSessionEntity
 import com.focuslock.app.data.local.entity.ProtectedAppEntity
 import com.focuslock.app.data.local.entity.ProtectionEventEntity
 import com.focuslock.app.data.local.entity.UsageSessionEntity
+import com.focuslock.app.data.local.entity.UserSettingsEntity
 
 @Database(
     entities = [
@@ -19,9 +21,10 @@ import com.focuslock.app.data.local.entity.UsageSessionEntity
         UsageSessionEntity::class,
         DailyUsageEntity::class,
         FocusSessionEntity::class,
-        ProtectionEventEntity::class
+        ProtectionEventEntity::class,
+        UserSettingsEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class FocusLockDatabase : RoomDatabase() {
@@ -29,6 +32,7 @@ abstract class FocusLockDatabase : RoomDatabase() {
     abstract fun protectedAppDao(): ProtectedAppDao
     abstract fun usageDao(): UsageDao
     abstract fun focusSessionDao(): FocusSessionDao
+    abstract fun userSettingsDao(): UserSettingsDao
 
     companion object {
         @Volatile

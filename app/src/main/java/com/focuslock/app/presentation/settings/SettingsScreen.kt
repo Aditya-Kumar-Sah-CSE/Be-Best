@@ -1,5 +1,6 @@
 package com.focuslock.app.presentation.settings
 
+import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import androidx.compose.foundation.background
@@ -19,16 +20,18 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.BatteryChargingFull
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Brightness4
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Pin
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -48,15 +51,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.focuslock.app.FocusLockApp
-import com.focuslock.app.core.designsystem.AmoledBackground
-import com.focuslock.app.core.designsystem.CyanAccent
+import com.focuslock.app.core.designsystem.BrandIndigo
+import com.focuslock.app.core.designsystem.BrandTeal
 import com.focuslock.app.core.designsystem.DangerRed
-import com.focuslock.app.core.designsystem.GlassmorphicCard
-import com.focuslock.app.core.designsystem.PurpleAccent
-import com.focuslock.app.core.designsystem.SuccessEmerald
-import com.focuslock.app.core.designsystem.TextMuted
-import com.focuslock.app.core.designsystem.TextPrimary
-import com.focuslock.app.core.designsystem.TextSecondary
+import com.focuslock.app.core.designsystem.FocusCard
+import com.focuslock.app.core.designsystem.SuccessGreen
+import com.focuslock.app.core.designsystem.ThemeMode
 import com.focuslock.app.core.util.BatteryOptimizationHelper
 
 @Composable
@@ -71,55 +71,122 @@ fun SettingsScreen(
     var pinInput by remember { mutableStateOf("") }
     var showPinDialog by remember { mutableStateOf(false) }
 
+    val prefs = remember { context.getSharedPreferences("focuslock_app_prefs", Context.MODE_PRIVATE) }
+    var currentTheme by remember {
+        mutableStateOf(ThemeMode.valueOf(prefs.getString("theme_mode", ThemeMode.SYSTEM.name) ?: ThemeMode.SYSTEM.name))
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(AmoledBackground)
+            .background(MaterialTheme.colorScheme.background)
             .padding(horizontal = 20.dp)
     ) {
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Top Bar
+        // Top App Bar
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
         ) {
             IconButton(onClick = onBack) {
                 Icon(
-                    imageVector = Icons.Default.ArrowBack,
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
-                    tint = TextPrimary
+                    tint = MaterialTheme.colorScheme.onBackground
                 )
             }
             Spacer(modifier = Modifier.width(8.dp))
             Column {
                 Text(
-                    text = "Security & Anti-Bypass",
+                    text = "Settings & Security",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
-                    color = TextPrimary
+                    color = MaterialTheme.colorScheme.onBackground
                 )
                 Text(
-                    text = "Configure Hardcore Mode, PIN lock, and system permissions",
+                    text = "Theme, Hardcore Mode, PIN lock, and diagnostics",
                     fontSize = 12.sp,
-                    color = TextMuted
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(18.dp))
 
         LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier.fillMaxSize()
         ) {
+            // Theme Selection
+            item {
+                FocusCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Brightness4,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Appearance Theme",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            listOf(ThemeMode.SYSTEM to "System", ThemeMode.LIGHT to "Light", ThemeMode.DARK to "Dark").forEach { (mode, label) ->
+                                val isSelected = currentTheme == mode
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(
+                                            if (isSelected) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.surface
+                                        )
+                                        .border(
+                                            width = 1.dp,
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                                            shape = RoundedCornerShape(10.dp)
+                                        )
+                                        .clickable {
+                                            currentTheme = mode
+                                            prefs.edit().putString("theme_mode", mode.name).apply()
+                                        }
+                                        .padding(vertical = 10.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = label,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                                        else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Hardcore Mode Card
             item {
-                GlassmorphicCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    cornerRadius = 20.dp,
-                    backgroundColor = if (isHardcoreEnabled) Color(0xFF24141E) else Color(0xFF141724)
-                ) {
+                FocusCard(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -132,30 +199,30 @@ fun SettingsScreen(
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(40.dp)
+                                        .size(38.dp)
                                         .clip(RoundedCornerShape(10.dp))
-                                        .background(if (isHardcoreEnabled) DangerRed.copy(alpha = 0.2f) else Color(0xFF1E2234)),
+                                        .background(if (isHardcoreEnabled) DangerRed.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surface),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Lock,
                                         contentDescription = null,
-                                        tint = if (isHardcoreEnabled) DangerRed else TextSecondary,
-                                        modifier = Modifier.size(20.dp)
+                                        tint = if (isHardcoreEnabled) DangerRed else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
-                                Spacer(modifier = Modifier.width(12.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
                                 Column {
                                     Text(
                                         text = "Hardcore Anti-Tampering",
-                                        fontSize = 16.sp,
+                                        fontSize = 15.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = TextPrimary
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
-                                        text = "Adds friction cooldowns before modifying limits",
+                                        text = "60-second cooldown delay before modifying limits",
                                         fontSize = 12.sp,
-                                        color = TextMuted
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
@@ -167,20 +234,18 @@ fun SettingsScreen(
                                     securityManager.setHardcoreMode(enabled)
                                 },
                                 colors = SwitchDefaults.colors(
-                                    checkedThumbColor = AmoledBackground,
-                                    checkedTrackColor = DangerRed,
-                                    uncheckedThumbColor = TextMuted,
-                                    uncheckedTrackColor = Color(0xFF1F2436)
+                                    checkedThumbColor = MaterialTheme.colorScheme.surface,
+                                    checkedTrackColor = DangerRed
                                 )
                             )
                         }
 
                         if (isHardcoreEnabled) {
-                            Spacer(modifier = Modifier.height(12.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
                             Text(
-                                text = "When Hardcore Mode is active, extending daily limits or disabling protection requires entering your PIN and waiting through an anti-impulse 60-second cooldown.",
+                                text = "When enabled, changing daily quotas or removing an app from protection requires entering your security PIN and waiting through a real 60-second friction timer.",
                                 fontSize = 12.sp,
-                                color = TextSecondary,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 lineHeight = 16.sp
                             )
                         }
@@ -188,12 +253,9 @@ fun SettingsScreen(
                 }
             }
 
-            // PIN Setup Card
+            // Security PIN Card
             item {
-                GlassmorphicCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    cornerRadius = 20.dp
-                ) {
+                FocusCard(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -204,54 +266,47 @@ fun SettingsScreen(
                                 Icon(
                                     imageVector = Icons.Default.Pin,
                                     contentDescription = null,
-                                    tint = CyanAccent,
-                                    modifier = Modifier.size(24.dp)
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
                                 )
-                                Spacer(modifier = Modifier.width(12.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
                                 Column {
                                     Text(
-                                        text = "Security PIN",
-                                        fontSize = 15.sp,
+                                        text = "Security PIN Protection",
+                                        fontSize = 14.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = TextPrimary
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
-                                        text = if (hasPin) "PIN Protection is configured" else "No PIN configured",
+                                        text = if (hasPin) "PBKDF2 Salted PIN is configured" else "No PIN set",
                                         fontSize = 12.sp,
-                                        color = if (hasPin) SuccessEmerald else TextMuted
+                                        color = if (hasPin) SuccessGreen else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
 
                             Button(
                                 onClick = { showPinDialog = !showPinDialog },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E2235))
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface)
                             ) {
                                 Text(
                                     text = if (hasPin) "Change PIN" else "Set PIN",
                                     fontSize = 12.sp,
-                                    color = CyanAccent
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                             }
                         }
 
                         if (showPinDialog) {
-                            Spacer(modifier = Modifier.height(14.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
                             OutlinedTextField(
                                 value = pinInput,
                                 onValueChange = { if (it.length <= 6) pinInput = it },
                                 label = { Text("Enter 4-6 digit PIN") },
                                 singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = TextFieldDefaults.colors(
-                                    focusedContainerColor = Color(0xFF10121B),
-                                    unfocusedContainerColor = Color(0xFF10121B),
-                                    focusedTextColor = TextPrimary,
-                                    unfocusedTextColor = TextPrimary,
-                                    focusedIndicatorColor = CyanAccent
-                                )
+                                modifier = Modifier.fillMaxWidth()
                             )
-                            Spacer(modifier = Modifier.height(10.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
                             Button(
                                 onClick = {
                                     if (pinInput.length >= 4) {
@@ -262,58 +317,107 @@ fun SettingsScreen(
                                     }
                                 },
                                 modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.buttonColors(containerColor = CyanAccent)
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                             ) {
-                                Text(text = "Save Encrypted PIN", color = AmoledBackground, fontWeight = FontWeight.Bold)
+                                Text(text = "Save Salted PIN", color = MaterialTheme.colorScheme.onPrimary)
                             }
                         }
                     }
                 }
             }
 
-            // System Permissions Direct Configuration Section
+            // Daily Reset Policy Card
+            item {
+                FocusCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Timer,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Daily Reset Policy",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "FocusLock operates on your phone's configured local calendar day. Every midnight (00:00:00), daily quotas refresh automatically. Quota state survives device reboots and timezone shifts.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
+            }
+
+            // Permission Diagnostics
             item {
                 Text(
-                    text = "System Permissions & Reliability",
-                    fontSize = 15.sp,
+                    text = "Permission Diagnostics",
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
-                    color = TextPrimary
+                    color = MaterialTheme.colorScheme.onBackground
                 )
             }
 
-            // Accessibility Permission Link
             item {
-                PermissionShortcutRow(
+                SettingsPermissionRow(
                     title = "Accessibility Service",
-                    subtitle = "Required to detect when controlled apps transition to foreground",
-                    onClick = {
-                        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                        context.startActivity(intent)
-                    }
+                    subtitle = "Required to detect when restricted apps transition into the foreground",
+                    onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
                 )
             }
 
-            // Usage Access Permission Link
             item {
-                PermissionShortcutRow(
+                SettingsPermissionRow(
                     title = "Usage Access",
-                    subtitle = "Allows reconciliation of foreground sessions with system stats",
-                    onClick = {
-                        val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
-                        context.startActivity(intent)
-                    }
+                    subtitle = "Authoritative background usage statistics reconciliation",
+                    onClick = { context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
                 )
             }
 
-            // Battery Optimization Link
             item {
-                PermissionShortcutRow(
+                SettingsPermissionRow(
                     title = "Battery Optimization Exemption",
-                    subtitle = "Prevents aggressive OEM task killers from terminating enforcement",
-                    onClick = {
-                        BatteryOptimizationHelper.requestIgnoreBatteryOptimizations(context)
-                    }
+                    subtitle = "Prevents aggressive vendor task killers from interrupting monitoring",
+                    onClick = { BatteryOptimizationHelper.requestIgnoreBatteryOptimizations(context) }
                 )
+            }
+
+            // Privacy & Data Management
+            item {
+                Text(
+                    text = "Privacy & Data Storage",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+            }
+
+            item {
+                FocusCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "100% Local-First Architecture",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "FocusLock never transmits your usage data, app list, or keystrokes to any remote servers. All records reside entirely in your device's local Room database.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
             }
 
             item {
@@ -324,19 +428,16 @@ fun SettingsScreen(
 }
 
 @Composable
-fun PermissionShortcutRow(
+fun SettingsPermissionRow(
     title: String,
     subtitle: String,
     onClick: () -> Unit
 ) {
-    Box(
+    FocusCard(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFF121420))
-            .border(1.dp, Color(0xFF22283A), RoundedCornerShape(16.dp))
-            .clickable { onClick() }
-            .padding(16.dp)
+            .clickable { onClick() },
+        contentPadding = 14.dp
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -346,24 +447,24 @@ fun PermissionShortcutRow(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    fontSize = 15.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = TextPrimary
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = subtitle,
-                    fontSize = 12.sp,
-                    color = TextMuted,
-                    lineHeight = 16.sp
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 15.sp
                 )
             }
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(10.dp))
             Text(
                 text = "OPEN",
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
-                color = CyanAccent
+                color = MaterialTheme.colorScheme.primary
             )
         }
     }

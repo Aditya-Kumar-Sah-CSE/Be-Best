@@ -7,7 +7,9 @@ import com.focuslock.app.FocusLockApp
 import com.focuslock.app.core.util.BatteryOptimizationHelper
 import com.focuslock.app.core.util.TimeUtils
 import com.focuslock.app.data.local.entity.DailyUsageEntity
+import com.focuslock.app.data.local.entity.FocusSessionEntity
 import com.focuslock.app.data.local.entity.ProtectedAppEntity
+import com.focuslock.app.domain.engine.QuotaStatus
 import com.focuslock.app.domain.model.ProtectionHealth
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,13 +17,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
-data class AppUsageCardData(
+data class DashboardCardItem(
     val packageName: String,
     val displayName: String,
     val category: String,
     val usedSeconds: Long,
     val quotaSeconds: Long,
-    val isBlocked: Boolean
+    val isBlocked: Boolean,
+    val isWarning: Boolean
 ) {
     val remainingSeconds: Long
         get() = (quotaSeconds - usedSeconds).coerceAtLeast(0L)
@@ -32,9 +35,12 @@ data class AppUsageCardData(
 
 data class DashboardUiState(
     val totalUsedSeconds: Long = 0L,
+    val totalTimeSavedSeconds: Long? = null, // null if no historical baseline available
+    val protectedAppsCount: Int = 0,
     val blockedAppsCount: Int = 0,
-    val activeAppsCount: Int = 0,
-    val appCards: List<AppUsageCardData> = emptyList(),
+    val appsCloseToLimit: List<DashboardCardItem> = emptyList(),
+    val appCards: List<DashboardCardItem> = emptyList(),
+    val activeFocusSession: FocusSessionEntity? = null,
     val protectionHealth: ProtectionHealth = ProtectionHealth(false, false, false, false),
     val isHardcoreActive: Boolean = false,
     val secondsUntilMidnight: Long = 0L
@@ -46,6 +52,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private val appRepo = app.appRepository
     private val usageRepo = app.usageRepository
     private val securityManager = app.pinSecurityManager
+    private val focusSessionDao = app.database.focusSessionDao()
 
     private val _uiState = MutableStateFlow(DashboardUiState())
     val uiState: StateFlow<DashboardUiState> = _uiState.asStateFlow()
@@ -79,35 +86,48 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             combine(
                 appRepo.getProtectedAppsFlow(),
-                usageRepo.getDailyUsageFlow(today)
-            ) { protectedApps: List<ProtectedAppEntity>, dailyUsages: List<DailyUsageEntity> ->
+                usageRepo.getDailyUsageFlow(today),
+                focusSessionDao.getActiveSessionFlow()
+            ) { protectedApps: List<ProtectedAppEntity>, dailyUsages: List<DailyUsageEntity>, activeFocus: FocusSessionEntity? ->
                 val usageMap = dailyUsages.associateBy { it.packageName }
+                val activeProtected = protectedApps.filter { it.enabled }
 
-                val cards = protectedApps.filter { it.enabled }.map { appEntity ->
+                val cards = activeProtected.map { appEntity ->
                     val usage = usageMap[appEntity.packageName]
                     val usedSecs = usage?.usedSeconds ?: 0L
                     val quotaSecs = appEntity.dailyLimitSeconds
-                    val blocked = usage?.isBlocked ?: (usedSecs >= quotaSecs)
+                    val blocked = usage?.isBlocked ?: (usedSecs >= quotaSecs && quotaSecs > 0)
+                    val warning = !blocked && quotaSecs > 0 && usedSecs >= (quotaSecs * 0.8)
 
-                    AppUsageCardData(
+                    DashboardCardItem(
                         packageName = appEntity.packageName,
                         displayName = appEntity.displayName,
                         category = appEntity.category,
                         usedSeconds = usedSecs,
                         quotaSeconds = quotaSecs,
-                        isBlocked = blocked
+                        isBlocked = blocked,
+                        isWarning = warning
                     )
                 }
 
                 val totalUsed = cards.sumOf { it.usedSeconds }
                 val blockedCount = cards.count { it.isBlocked }
-                val activeCount = cards.count { !it.isBlocked }
+                val closeToLimit = cards.filter { it.isWarning || it.isBlocked }
+
+                // Time saved: calculated if user stayed under their assigned quotas
+                val totalQuotas = cards.sumOf { it.quotaSeconds }
+                val timeSaved = if (totalQuotas > 0 && totalUsed < totalQuotas) {
+                    (totalQuotas - totalUsed).coerceAtLeast(0L)
+                } else null
 
                 DashboardUiState(
                     totalUsedSeconds = totalUsed,
+                    totalTimeSavedSeconds = timeSaved,
+                    protectedAppsCount = activeProtected.size,
                     blockedAppsCount = blockedCount,
-                    activeAppsCount = activeCount,
+                    appsCloseToLimit = closeToLimit,
                     appCards = cards,
+                    activeFocusSession = activeFocus,
                     protectionHealth = _uiState.value.protectionHealth,
                     isHardcoreActive = securityManager.isHardcoreModeActive(),
                     secondsUntilMidnight = TimeUtils.getSecondsUntilNextMidnight()
@@ -128,6 +148,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 getApplication<Application>().packageName
             )
         } else {
+            @Suppress("DEPRECATION")
             appOps.checkOpNoThrow(
                 android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
                 android.os.Process.myUid(),
