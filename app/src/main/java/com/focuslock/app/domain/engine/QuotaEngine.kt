@@ -9,42 +9,71 @@ import com.focuslock.app.data.local.dao.UsageDao
 import com.focuslock.app.data.local.entity.DailyUsageEntity
 import com.focuslock.app.data.local.entity.ProtectedAppEntity
 
-enum class QuotaStatus {
+enum class ProtectionState {
     ALLOWED,
-    WARNING, // Usage >= 80% of quota
-    EXHAUSTED
+    WARNING,
+    EXHAUSTED,
+    EMERGENCY_ACTIVE,
+    BLOCKED_UNTIL_RESET
 }
+
+typealias QuotaStatus = ProtectionState
 
 data class AppQuotaEvaluation(
     val packageName: String,
     val dailyLimitSeconds: Long,
     val usedSeconds: Long,
     val remainingSeconds: Long,
-    val status: QuotaStatus,
+    val status: ProtectionState,
     val isBlocked: Boolean,
-    val blockedReason: String? = null
+    val canUseEmergency: Boolean = false,
+    val remainingEmergencySeconds: Long = 0L,
+    val emergencyUsedToday: Boolean = false,
+    val emergencyExpiresAtMillis: Long = 0L,
+    val blockedReason: String? = null,
+    val permissionsActive: Boolean = true
 )
+
+sealed class EmergencyStartResult {
+    data class Success(val remainingSeconds: Long, val expiresAtMillis: Long) : EmergencyStartResult()
+    object AlreadyUsedToday : EmergencyStartResult()
+    object NotProtected : EmergencyStartResult()
+    object NotExhausted : EmergencyStartResult()
+}
+
+interface PermissionChecker {
+    fun areEnforcementPermissionsActive(): Boolean
+}
 
 class QuotaEngine(
     private val protectedAppDao: ProtectedAppDao,
     private val usageDao: UsageDao,
     private val focusSessionDao: FocusSessionDao? = null,
-    private val timeProvider: TimeProvider = SystemTimeProvider()
+    private val timeProvider: TimeProvider = SystemTimeProvider(),
+    private val permissionChecker: PermissionChecker? = null
 ) {
 
+    companion object {
+        const val EMERGENCY_DURATION_MILLIS = 30_000L
+        const val EMERGENCY_DURATION_SECONDS = 30L
+    }
+
     /**
-     * Authoritative calculation of an application's quota status.
+     * Authoritative calculation of an application's quota status and protection state.
      * Guaranteed independent per package.
      */
     suspend fun evaluateQuota(packageName: String): AppQuotaEvaluation {
+        val permsActive = permissionChecker?.areEnforcementPermissionsActive() ?: true
+
         val app = protectedAppDao.getAppByPackageName(packageName)
             ?: return AppQuotaEvaluation(
                 packageName = packageName,
                 dailyLimitSeconds = 1800L,
                 usedSeconds = 0L,
                 remainingSeconds = 1800L,
-                status = QuotaStatus.ALLOWED,
-                isBlocked = false
+                status = ProtectionState.ALLOWED,
+                isBlocked = false,
+                permissionsActive = permsActive
             )
 
         if (!app.enabled) {
@@ -53,8 +82,9 @@ class QuotaEngine(
                 dailyLimitSeconds = app.dailyLimitSeconds,
                 usedSeconds = 0L,
                 remainingSeconds = app.dailyLimitSeconds,
-                status = QuotaStatus.ALLOWED,
-                isBlocked = false
+                status = ProtectionState.ALLOWED,
+                isBlocked = false,
+                permissionsActive = permsActive
             )
         }
 
@@ -68,9 +98,11 @@ class QuotaEngine(
                     dailyLimitSeconds = app.dailyLimitSeconds,
                     usedSeconds = 0L,
                     remainingSeconds = 0L,
-                    status = QuotaStatus.EXHAUSTED,
+                    status = ProtectionState.EXHAUSTED,
                     isBlocked = true,
-                    blockedReason = "Active Focus Session in progress"
+                    canUseEmergency = false,
+                    blockedReason = "Active Focus Session in progress",
+                    permissionsActive = permsActive
                 )
             }
         }
@@ -80,29 +112,172 @@ class QuotaEngine(
         val usedSeconds = usageEntity?.usedSeconds?.coerceAtLeast(0L) ?: 0L
         val limitSeconds = app.dailyLimitSeconds.coerceAtLeast(0L)
 
-        // Remaining allowance = max(0, dailyLimit - usedToday)
+        // Remaining daily allowance = max(0, dailyLimit - usedToday)
         val remainingSeconds = (limitSeconds - usedSeconds).coerceAtLeast(0L)
-        val isExhausted = (usedSeconds >= limitSeconds) && (limitSeconds > 0L)
-        val isZeroQuota = (limitSeconds == 0L)
+        val isExhausted = (usedSeconds >= limitSeconds && limitSeconds > 0L) || (limitSeconds == 0L)
 
-        val isBlocked = isExhausted || isZeroQuota
-
-        val status = when {
-            isBlocked -> QuotaStatus.EXHAUSTED
-            limitSeconds > 0L && usedSeconds >= (limitSeconds * 0.8) -> QuotaStatus.WARNING
-            else -> QuotaStatus.ALLOWED
+        if (!isExhausted) {
+            val status = if (limitSeconds > 0L && usedSeconds >= (limitSeconds * 0.8)) {
+                ProtectionState.WARNING
+            } else {
+                ProtectionState.ALLOWED
+            }
+            return AppQuotaEvaluation(
+                packageName = packageName,
+                dailyLimitSeconds = limitSeconds,
+                usedSeconds = usedSeconds,
+                remainingSeconds = remainingSeconds,
+                status = status,
+                isBlocked = false,
+                canUseEmergency = false,
+                emergencyUsedToday = usageEntity?.emergencyUsed == true,
+                blockedReason = null,
+                permissionsActive = permsActive
+            )
         }
 
-        val reason = if (isBlocked) "Daily allowance of ${TimeUtils.formatDurationShort(limitSeconds)} exhausted" else null
+        // Quota is EXHAUSTED: Evaluate 30-second Emergency Access state
+        val emergencyUsed = usageEntity?.emergencyUsed == true
+        val emergencyStartedAt = usageEntity?.emergencyStartedAt ?: 0L
+        val emergencyExpiresAt = usageEntity?.emergencyExpiresAt ?: 0L
+        val emergencyElapsedStart = usageEntity?.emergencyElapsedRealtimeAtStart ?: 0L
 
-        return AppQuotaEvaluation(
-            packageName = packageName,
-            dailyLimitSeconds = limitSeconds,
-            usedSeconds = usedSeconds,
-            remainingSeconds = remainingSeconds,
-            status = status,
-            isBlocked = isBlocked,
-            blockedReason = reason
+        if (emergencyStartedAt > 0L && emergencyExpiresAt > 0L) {
+            val nowWall = timeProvider.currentTimeMillis()
+            val nowElapsed = timeProvider.elapsedRealtime()
+
+            val wallExpired = nowWall >= emergencyExpiresAt
+            val elapsedExpired = (nowElapsed - emergencyElapsedStart) >= EMERGENCY_DURATION_MILLIS
+            val rebootDetected = nowElapsed < emergencyElapsedStart
+
+            val isExpired = wallExpired || elapsedExpired || rebootDetected
+
+            if (!isExpired) {
+                val remainingMillis = minOf(
+                    (emergencyExpiresAt - nowWall),
+                    (EMERGENCY_DURATION_MILLIS - (nowElapsed - emergencyElapsedStart))
+                ).coerceAtLeast(0L)
+                val remainingSecs = ((remainingMillis + 999L) / 1000L).coerceIn(1L, EMERGENCY_DURATION_SECONDS)
+
+                return AppQuotaEvaluation(
+                    packageName = packageName,
+                    dailyLimitSeconds = limitSeconds,
+                    usedSeconds = usedSeconds,
+                    remainingSeconds = 0L,
+                    status = ProtectionState.EMERGENCY_ACTIVE,
+                    isBlocked = false, // Temporarily accessible during 30s emergency window
+                    canUseEmergency = false,
+                    remainingEmergencySeconds = remainingSecs,
+                    emergencyUsedToday = true,
+                    emergencyExpiresAtMillis = emergencyExpiresAt,
+                    blockedReason = null,
+                    permissionsActive = permsActive
+                )
+            } else {
+                // Emergency session was started but has elapsed
+                return AppQuotaEvaluation(
+                    packageName = packageName,
+                    dailyLimitSeconds = limitSeconds,
+                    usedSeconds = usedSeconds,
+                    remainingSeconds = 0L,
+                    status = ProtectionState.BLOCKED_UNTIL_RESET,
+                    isBlocked = true,
+                    canUseEmergency = false,
+                    remainingEmergencySeconds = 0L,
+                    emergencyUsedToday = true,
+                    emergencyExpiresAtMillis = emergencyExpiresAt,
+                    blockedReason = "Emergency access ended. Locked until tomorrow.",
+                    permissionsActive = permsActive
+                )
+            }
+        }
+
+        // Emergency has not yet been started
+        if (!emergencyUsed) {
+            return AppQuotaEvaluation(
+                packageName = packageName,
+                dailyLimitSeconds = limitSeconds,
+                usedSeconds = usedSeconds,
+                remainingSeconds = 0L,
+                status = ProtectionState.EXHAUSTED,
+                isBlocked = true,
+                canUseEmergency = true,
+                remainingEmergencySeconds = 0L,
+                emergencyUsedToday = false,
+                blockedReason = "Daily allowance of ${TimeUtils.formatDurationShort(limitSeconds)} exhausted",
+                permissionsActive = permsActive
+            )
+        } else {
+            return AppQuotaEvaluation(
+                packageName = packageName,
+                dailyLimitSeconds = limitSeconds,
+                usedSeconds = usedSeconds,
+                remainingSeconds = 0L,
+                status = ProtectionState.BLOCKED_UNTIL_RESET,
+                isBlocked = true,
+                canUseEmergency = false,
+                remainingEmergencySeconds = 0L,
+                emergencyUsedToday = true,
+                blockedReason = "Emergency access already used today.",
+                permissionsActive = permsActive
+            )
+        }
+    }
+
+    /**
+     * Starts a one-time 30-second emergency unlock session for an exhausted application.
+     * Prevents re-use on the same local calendar day.
+     */
+    suspend fun startEmergencySession(packageName: String): EmergencyStartResult {
+        val evaluation = evaluateQuota(packageName)
+        val app = protectedAppDao.getAppByPackageName(packageName)
+            ?: return EmergencyStartResult.NotProtected
+
+        if (!evaluation.isBlocked && evaluation.status != ProtectionState.EXHAUSTED) {
+            return EmergencyStartResult.NotExhausted
+        }
+
+        if (evaluation.emergencyUsedToday || !evaluation.canUseEmergency) {
+            return EmergencyStartResult.AlreadyUsedToday
+        }
+
+        val todayDate = TimeUtils.formatDate(timeProvider.getTodayLocalDate())
+        val tzId = timeProvider.getZoneId().id
+        val nowWall = timeProvider.currentTimeMillis()
+        val nowElapsed = timeProvider.elapsedRealtime()
+        val expiresAt = nowWall + EMERGENCY_DURATION_MILLIS
+
+        val existing = usageDao.getDailyUsageForApp(packageName, todayDate)
+        if (existing == null) {
+            usageDao.insertOrUpdateDailyUsage(
+                DailyUsageEntity(
+                    packageName = packageName,
+                    localDate = todayDate,
+                    timezoneId = tzId,
+                    usedSeconds = evaluation.usedSeconds,
+                    quotaSeconds = app.dailyLimitSeconds,
+                    isBlocked = false,
+                    emergencyUsed = true,
+                    emergencyStartedAt = nowWall,
+                    emergencyExpiresAt = expiresAt,
+                    emergencyElapsedRealtimeAtStart = nowElapsed,
+                    updatedAt = nowWall
+                )
+            )
+        } else {
+            usageDao.recordEmergencySession(
+                packageName = packageName,
+                date = todayDate,
+                startedAt = nowWall,
+                expiresAt = expiresAt,
+                elapsedStart = nowElapsed,
+                now = nowWall
+            )
+        }
+
+        return EmergencyStartResult.Success(
+            remainingSeconds = EMERGENCY_DURATION_SECONDS,
+            expiresAtMillis = expiresAt
         )
     }
 
@@ -148,8 +323,8 @@ class QuotaEngine(
     }
 
     /**
-     * Checks whether calendar day has transitioned and resets quotas if so.
-     * A countdown reaching zero alone does not reset quotas; only date progression resets.
+     * Checks whether calendar day has transitioned and resets quotas for all protected apps.
+     * Restores fresh emergency eligibility for the new local calendar date.
      */
     suspend fun checkAndPerformMidnightReset(): Boolean {
         val today = TimeUtils.formatDate(timeProvider.getTodayLocalDate())
@@ -168,6 +343,10 @@ class QuotaEngine(
                         usedSeconds = 0L,
                         quotaSeconds = app.dailyLimitSeconds,
                         isBlocked = false,
+                        emergencyUsed = false,
+                        emergencyStartedAt = 0L,
+                        emergencyExpiresAt = 0L,
+                        emergencyElapsedRealtimeAtStart = 0L,
                         updatedAt = timeProvider.currentTimeMillis()
                     )
                 )

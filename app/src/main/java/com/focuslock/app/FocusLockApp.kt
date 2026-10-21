@@ -49,7 +49,8 @@ class FocusLockApp : Application() {
             protectedAppDao = database.protectedAppDao(),
             usageDao = database.usageDao(),
             focusSessionDao = database.focusSessionDao(),
-            timeProvider = SystemTimeProvider()
+            timeProvider = SystemTimeProvider(),
+            permissionChecker = com.focuslock.app.core.util.AndroidPermissionChecker(this)
         )
 
         realUsageTracker = RealUsageTracker(

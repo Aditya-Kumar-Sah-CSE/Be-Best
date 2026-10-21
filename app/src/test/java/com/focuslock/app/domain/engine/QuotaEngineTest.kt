@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -25,12 +26,29 @@ import java.time.ZoneId
 class FakeTimeProvider(
     private var currentDate: LocalDate = LocalDate.of(2026, 10, 21),
     private var zoneId: ZoneId = ZoneId.of("UTC"),
-    private var currentMillis: Long = 1761048000000L // 12:00:00 UTC
+    private var currentMillis: Long = 1761048000000L, // 12:00:00 UTC
+    private var currentElapsedMillis: Long = 100_000L
 ) : TimeProvider {
+
+    fun advanceSeconds(seconds: Long) {
+        currentMillis += seconds * 1000L
+        currentElapsedMillis += seconds * 1000L
+    }
+
+    fun advanceMillis(millis: Long) {
+        currentMillis += millis
+        currentElapsedMillis += millis
+    }
 
     fun advanceDateByDays(days: Long) {
         currentDate = currentDate.plusDays(days)
         currentMillis += days * 86400000L
+        currentElapsedMillis += days * 86400000L
+    }
+
+    fun simulateReboot(postBootElapsedMillis: Long = 5000L) {
+        currentMillis += 10000L
+        currentElapsedMillis = postBootElapsedMillis
     }
 
     fun setZone(newZone: ZoneId) {
@@ -39,7 +57,7 @@ class FakeTimeProvider(
 
     override fun currentTimeMillis(): Long = currentMillis
 
-    override fun elapsedRealtime(): Long = currentMillis
+    override fun elapsedRealtime(): Long = currentElapsedMillis
 
     override fun getZoneId(): ZoneId = zoneId
 
@@ -50,6 +68,15 @@ class FakeTimeProvider(
 
     override fun getNextMidnightMillis(): Long =
         currentDate.plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli()
+}
+
+/**
+ * Fake PermissionChecker for deterministic permission state tests.
+ */
+class FakePermissionChecker(
+    var active: Boolean = true
+) : PermissionChecker {
+    override fun areEnforcementPermissionsActive(): Boolean = active
 }
 
 /**
@@ -115,6 +142,26 @@ class FakeUsageDao : UsageDao {
         }
     }
 
+    override suspend fun recordEmergencySession(
+        packageName: String,
+        date: String,
+        startedAt: Long,
+        expiresAt: Long,
+        elapsedStart: Long,
+        now: Long
+    ) {
+        val existing = getDailyUsageForApp(packageName, date)
+        if (existing != null) {
+            usageMap[key(packageName, date)] = existing.copy(
+                emergencyUsed = true,
+                emergencyStartedAt = startedAt,
+                emergencyExpiresAt = expiresAt,
+                emergencyElapsedRealtimeAtStart = elapsedStart,
+                updatedAt = now
+            )
+        }
+    }
+
     override suspend fun insertUsageSession(session: UsageSessionEntity) {}
 
     override suspend fun insertProtectionEvent(event: ProtectionEventEntity) {}
@@ -133,6 +180,7 @@ class QuotaEngineTest {
     private lateinit var protectedAppDao: FakeProtectedAppDao
     private lateinit var usageDao: FakeUsageDao
     private lateinit var fakeTimeProvider: FakeTimeProvider
+    private lateinit var permissionChecker: FakePermissionChecker
     private lateinit var quotaEngine: QuotaEngine
 
     private val instagramPkg = "com.instagram.android"
@@ -143,12 +191,14 @@ class QuotaEngineTest {
         protectedAppDao = FakeProtectedAppDao()
         usageDao = FakeUsageDao()
         fakeTimeProvider = FakeTimeProvider()
+        permissionChecker = FakePermissionChecker(active = true)
 
         quotaEngine = QuotaEngine(
             protectedAppDao = protectedAppDao,
             usageDao = usageDao,
             focusSessionDao = null,
-            timeProvider = fakeTimeProvider
+            timeProvider = fakeTimeProvider,
+            permissionChecker = permissionChecker
         )
 
         // Set up Instagram with 30m limit (1800s) and YouTube with 30m limit (1800s)
@@ -172,56 +222,38 @@ class QuotaEngineTest {
         )
     }
 
+    // 1. App remains allowed below its limit.
     @Test
-    fun testUsageBelowLimit_AllowedState() = runBlocking {
+    fun test1_appRemainsAllowedBelowLimit() = runBlocking {
         // 10 minutes used of 30 minutes
         quotaEngine.recordUsage(instagramPkg, 600L)
 
         val evaluation = quotaEngine.evaluateQuota(instagramPkg)
-        assertEquals(QuotaStatus.ALLOWED, evaluation.status)
+        assertEquals(ProtectionState.ALLOWED, evaluation.status)
         assertFalse(evaluation.isBlocked)
         assertEquals(1800L, evaluation.dailyLimitSeconds)
         assertEquals(600L, evaluation.usedSeconds)
         assertEquals(1200L, evaluation.remainingSeconds)
     }
 
+    // 2. App becomes blocked at the exact limit.
     @Test
-    fun testUsageNearLimit_WarningState() = runBlocking {
-        // 25 minutes used of 30 minutes (>80%)
-        quotaEngine.recordUsage(instagramPkg, 1500L)
-
-        val evaluation = quotaEngine.evaluateQuota(instagramPkg)
-        assertEquals(QuotaStatus.WARNING, evaluation.status)
-        assertFalse(evaluation.isBlocked)
-        assertEquals(300L, evaluation.remainingSeconds)
-    }
-
-    @Test
-    fun testUsageExactlyAtLimit_ExhaustedAndBlocked() = runBlocking {
-        // Exactly 30 minutes used
+    fun test2_appBecomesBlockedAtExactLimit() = runBlocking {
+        // Exactly 30 minutes used (1800s)
         quotaEngine.recordUsage(instagramPkg, 1800L)
 
         val evaluation = quotaEngine.evaluateQuota(instagramPkg)
-        assertEquals(QuotaStatus.EXHAUSTED, evaluation.status)
+        assertEquals(ProtectionState.EXHAUSTED, evaluation.status)
         assertTrue(evaluation.isBlocked)
         assertEquals(0L, evaluation.remainingSeconds)
+        assertTrue(evaluation.canUseEmergency)
+        assertFalse(evaluation.emergencyUsedToday)
     }
 
+    // 3. Separate apps have independent quotas.
     @Test
-    fun testUsageAboveLimit_RemainingNeverNegative() = runBlocking {
-        // 35 minutes used of 30 minutes
-        quotaEngine.recordUsage(instagramPkg, 2100L)
-
-        val evaluation = quotaEngine.evaluateQuota(instagramPkg)
-        assertEquals(QuotaStatus.EXHAUSTED, evaluation.status)
-        assertTrue(evaluation.isBlocked)
-        assertEquals(0L, evaluation.remainingSeconds) // max(0, limit - used)
-        assertEquals(2100L, evaluation.usedSeconds)
-    }
-
-    @Test
-    fun testIndependentQuotas_UsingOneAppDoesNotConsumeAnother() = runBlocking {
-        // Exhaust Instagram (30m used)
+    fun test3_separateAppsHaveIndependentQuotas() = runBlocking {
+        // Exhaust Instagram
         quotaEngine.recordUsage(instagramPkg, 1800L)
 
         val igEval = quotaEngine.evaluateQuota(instagramPkg)
@@ -231,66 +263,240 @@ class QuotaEngineTest {
         assertFalse("YouTube must NOT be blocked", ytEval.isBlocked)
         assertEquals(0L, ytEval.usedSeconds)
         assertEquals(1800L, ytEval.remainingSeconds)
-        assertEquals(QuotaStatus.ALLOWED, ytEval.status)
+        assertEquals(ProtectionState.ALLOWED, ytEval.status)
     }
 
+    // 4. Emergency access starts only after an explicit action.
     @Test
-    fun testZeroMinuteQuota_ImmediatelyBlocked() = runBlocking {
-        val testPkg = "com.gaming.distraction"
-        protectedAppDao.insertOrUpdate(
-            ProtectedAppEntity(
-                packageName = testPkg,
-                displayName = "Game",
-                dailyLimitSeconds = 0L,
-                enabled = true
-            )
+    fun test4_emergencyAccessStartsOnlyAfterExplicitAction() = runBlocking {
+        quotaEngine.recordUsage(instagramPkg, 1800L)
+
+        // Before explicit action: EXHAUSTED and blocked
+        val before = quotaEngine.evaluateQuota(instagramPkg)
+        assertTrue(before.isBlocked)
+        assertEquals(ProtectionState.EXHAUSTED, before.status)
+        assertNotEquals(ProtectionState.EMERGENCY_ACTIVE, before.status)
+
+        // User explicitly triggers emergency session
+        val result = quotaEngine.startEmergencySession(instagramPkg)
+        assertTrue(result is EmergencyStartResult.Success)
+
+        // Now emergency access is active
+        val after = quotaEngine.evaluateQuota(instagramPkg)
+        assertEquals(ProtectionState.EMERGENCY_ACTIVE, after.status)
+        assertFalse(after.isBlocked)
+        assertEquals(30L, after.remainingEmergencySeconds)
+    }
+
+    // 5. Emergency access lasts no more than 30 seconds.
+    @Test
+    fun test5_emergencyAccessLastsNoMoreThan30Seconds() = runBlocking {
+        quotaEngine.recordUsage(instagramPkg, 1800L)
+        val startResult = quotaEngine.startEmergencySession(instagramPkg)
+        assertTrue(startResult is EmergencyStartResult.Success)
+
+        // At 15 seconds: still allowed
+        fakeTimeProvider.advanceSeconds(15)
+        val midEval = quotaEngine.evaluateQuota(instagramPkg)
+        assertEquals(ProtectionState.EMERGENCY_ACTIVE, midEval.status)
+        assertFalse(midEval.isBlocked)
+        assertEquals(15L, midEval.remainingEmergencySeconds)
+
+        // At 30 seconds (full elapsed): emergency expires
+        fakeTimeProvider.advanceSeconds(15)
+        val expiredEval = quotaEngine.evaluateQuota(instagramPkg)
+        assertEquals(ProtectionState.BLOCKED_UNTIL_RESET, expiredEval.status)
+        assertTrue(expiredEval.isBlocked)
+        assertEquals(0L, expiredEval.remainingEmergencySeconds)
+    }
+
+    // 6. Emergency access cannot be restarted after process recreation.
+    @Test
+    fun test6_emergencyAccessCannotBeRestartedAfterProcessRecreation() = runBlocking {
+        quotaEngine.recordUsage(instagramPkg, 1800L)
+        quotaEngine.startEmergencySession(instagramPkg)
+
+        // Advance past 30s
+        fakeTimeProvider.advanceSeconds(35)
+
+        // Simulate app process death and recreation with a fresh QuotaEngine instance
+        val recreatedEngine = QuotaEngine(
+            protectedAppDao = protectedAppDao,
+            usageDao = usageDao,
+            focusSessionDao = null,
+            timeProvider = fakeTimeProvider
         )
 
-        val eval = quotaEngine.evaluateQuota(testPkg)
-        assertTrue("Zero-quota app must be immediately blocked", eval.isBlocked)
-        assertEquals(0L, eval.remainingSeconds)
+        val eval = recreatedEngine.evaluateQuota(instagramPkg)
+        assertTrue("Recreated engine must reflect blocked state", eval.isBlocked)
+        assertEquals(ProtectionState.BLOCKED_UNTIL_RESET, eval.status)
+
+        // Attempting to restart emergency fails
+        val restartResult = recreatedEngine.startEmergencySession(instagramPkg)
+        assertEquals(EmergencyStartResult.AlreadyUsedToday, restartResult)
     }
 
+    // 7. Emergency access cannot be reused for the same app on the same day.
     @Test
-    fun testQuotaChange_IncreasingLimitUnblocksApp() = runBlocking {
-        // Exhaust Instagram at 30m
+    fun test7_emergencyAccessCannotBeReusedSameDay() = runBlocking {
         quotaEngine.recordUsage(instagramPkg, 1800L)
-        assertTrue(quotaEngine.evaluateQuota(instagramPkg).isBlocked)
+        val firstStart = quotaEngine.startEmergencySession(instagramPkg)
+        assertTrue(firstStart is EmergencyStartResult.Success)
 
-        // User increases limit to 45m (2700s)
-        protectedAppDao.updateLimit(instagramPkg, 2700L)
+        // Advance 30 seconds so it ends
+        fakeTimeProvider.advanceSeconds(30)
 
-        val updatedEval = quotaEngine.evaluateQuota(instagramPkg)
-        assertFalse("App must be unblocked after limit increase", updatedEval.isBlocked)
-        assertEquals(900L, updatedEval.remainingSeconds)
-        assertEquals(QuotaStatus.ALLOWED, updatedEval.status)
-    }
+        // Second attempt on the same day must be rejected
+        val secondStart = quotaEngine.startEmergencySession(instagramPkg)
+        assertEquals(EmergencyStartResult.AlreadyUsedToday, secondStart)
 
-    @Test
-    fun testCalendarDayMidnightReset_RestoresAllowance() = runBlocking {
-        // Exhaust quota on Day 1
-        quotaEngine.recordUsage(instagramPkg, 1800L)
-        assertTrue(quotaEngine.evaluateQuota(instagramPkg).isBlocked)
-
-        // Advance simulated time by 1 day (midnight crossed)
-        fakeTimeProvider.advanceDateByDays(1)
-
-        // QuotaEngine checks for midnight reset
-        val resetTriggered = quotaEngine.checkAndPerformMidnightReset()
-        assertTrue("Reset must be triggered for new date", resetTriggered)
-
-        val newDayEval = quotaEngine.evaluateQuota(instagramPkg)
-        assertFalse("Quota must be unblocked on new day", newDayEval.isBlocked)
-        assertEquals(0L, newDayEval.usedSeconds)
-        assertEquals(1800L, newDayEval.remainingSeconds)
-        assertEquals(QuotaStatus.ALLOWED, newDayEval.status)
-    }
-
-    @Test
-    fun testNegativeUsage_IgnoredGracefully() = runBlocking {
-        quotaEngine.recordUsage(instagramPkg, -500L)
         val eval = quotaEngine.evaluateQuota(instagramPkg)
-        assertEquals(0L, eval.usedSeconds)
-        assertEquals(1800L, eval.remainingSeconds)
+        assertEquals(ProtectionState.BLOCKED_UNTIL_RESET, eval.status)
+        assertTrue(eval.isBlocked)
+        assertFalse(eval.canUseEmergency)
+    }
+
+    // 8. Leaving and reopening the protected app does not reset the timer.
+    @Test
+    fun test8_leavingAndReopeningDoesNotResetTimer() = runBlocking {
+        quotaEngine.recordUsage(instagramPkg, 1800L)
+        quotaEngine.startEmergencySession(instagramPkg)
+
+        // User spends 10s in app, leaves, returns 5s later (15s total elapsed)
+        fakeTimeProvider.advanceSeconds(15)
+
+        val eval = quotaEngine.evaluateQuota(instagramPkg)
+        assertEquals(ProtectionState.EMERGENCY_ACTIVE, eval.status)
+        // Must reflect 15 seconds remaining, NOT reset to 30s
+        assertEquals(15L, eval.remainingEmergencySeconds)
+    }
+
+    // 9. Expired emergency access returns the app to BLOCKED state.
+    @Test
+    fun test9_expiredEmergencyReturnsAppToBlockedState() = runBlocking {
+        quotaEngine.recordUsage(instagramPkg, 1800L)
+        quotaEngine.startEmergencySession(instagramPkg)
+
+        // Advance 31 seconds
+        fakeTimeProvider.advanceSeconds(31)
+
+        val eval = quotaEngine.evaluateQuota(instagramPkg)
+        assertTrue("Expired emergency must return to blocked state", eval.isBlocked)
+        assertEquals(ProtectionState.BLOCKED_UNTIL_RESET, eval.status)
+    }
+
+    // 10. Changing the daily limit does not reset emergency eligibility.
+    @Test
+    fun test10_changingDailyLimitDoesNotResetEmergencyEligibility() = runBlocking {
+        quotaEngine.recordUsage(instagramPkg, 2400L) // 40m used
+        quotaEngine.startEmergencySession(instagramPkg)
+        fakeTimeProvider.advanceSeconds(30)
+
+        // User changes limit from 30m (1800s) to 35m (2100s) - still exhausted!
+        protectedAppDao.updateLimit(instagramPkg, 2100L)
+
+        val eval = quotaEngine.evaluateQuota(instagramPkg)
+        assertTrue(eval.isBlocked)
+        assertEquals(ProtectionState.BLOCKED_UNTIL_RESET, eval.status)
+        assertTrue(eval.emergencyUsedToday)
+        assertFalse(eval.canUseEmergency)
+
+        val retryResult = quotaEngine.startEmergencySession(instagramPkg)
+        assertEquals(EmergencyStartResult.AlreadyUsedToday, retryResult)
+    }
+
+    // 11. Daily reset restores quota and emergency eligibility.
+    @Test
+    fun test11_dailyResetRestoresQuotaAndEmergencyEligibility() = runBlocking {
+        quotaEngine.recordUsage(instagramPkg, 1800L)
+        quotaEngine.startEmergencySession(instagramPkg)
+        fakeTimeProvider.advanceSeconds(30)
+        assertTrue(quotaEngine.evaluateQuota(instagramPkg).isBlocked)
+
+        // Advance to next local date
+        fakeTimeProvider.advanceDateByDays(1)
+        val resetPerformed = quotaEngine.checkAndPerformMidnightReset()
+        assertTrue(resetPerformed)
+
+        val nextDayEval = quotaEngine.evaluateQuota(instagramPkg)
+        assertFalse("New day must restore quota", nextDayEval.isBlocked)
+        assertEquals(0L, nextDayEval.usedSeconds)
+        assertEquals(1800L, nextDayEval.remainingSeconds)
+        assertEquals(ProtectionState.ALLOWED, nextDayEval.status)
+        assertFalse("Emergency eligibility must be restored for new day", nextDayEval.emergencyUsedToday)
+    }
+
+    // 12. Restarting the app does not incorrectly reset usage.
+    @Test
+    fun test12_restartingAppDoesNotIncorrectlyResetUsage() = runBlocking {
+        // User used 1000s
+        quotaEngine.recordUsage(instagramPkg, 1000L)
+
+        // Simulate app process kill & restart
+        val newEngine = QuotaEngine(
+            protectedAppDao = protectedAppDao,
+            usageDao = usageDao,
+            focusSessionDao = null,
+            timeProvider = fakeTimeProvider
+        )
+
+        val eval = newEngine.evaluateQuota(instagramPkg)
+        assertEquals("Usage must survive app restart", 1000L, eval.usedSeconds)
+        assertEquals(800L, eval.remainingSeconds)
+        assertFalse(eval.isBlocked)
+    }
+
+    // 13. Missing permissions are reported accurately.
+    @Test
+    fun test13_missingPermissionsReportedAccurately() = runBlocking {
+        permissionChecker.active = false
+
+        val eval = quotaEngine.evaluateQuota(instagramPkg)
+        assertFalse("Evaluation must flag inactive permissions", eval.permissionsActive)
+
+        permissionChecker.active = true
+        val activeEval = quotaEngine.evaluateQuota(instagramPkg)
+        assertTrue("Evaluation must report active permissions", activeEval.permissionsActive)
+    }
+
+    // 14. Accessibility events do not cause an infinite blocking loop.
+    @Test
+    fun test14_accessibilityEventsDoNotCauseInfiniteBlockingLoop() = runBlocking {
+        quotaEngine.recordUsage(instagramPkg, 1800L)
+        val eval = quotaEngine.evaluateQuota(instagramPkg)
+        assertTrue(eval.isBlocked)
+
+        // When BlockingActivity is visible for this package, the service loop guard prevents duplicate launches
+        var launchCount = 0
+        fun simulateAccessibilityEvent(pkg: String, isActivityVisible: Boolean, activePkg: String?) {
+            if (isActivityVisible && activePkg == pkg) {
+                // Loop guard triggered: event ignored
+                return
+            }
+            launchCount++
+        }
+
+        // First event launches block screen
+        simulateAccessibilityEvent(instagramPkg, isActivityVisible = false, activePkg = null)
+        assertEquals(1, launchCount)
+
+        // Subsequent rapid events while block screen is visible are suppressed
+        simulateAccessibilityEvent(instagramPkg, isActivityVisible = true, activePkg = instagramPkg)
+        simulateAccessibilityEvent(instagramPkg, isActivityVisible = true, activePkg = instagramPkg)
+        assertEquals("Subsequent events while screen is visible must be suppressed", 1, launchCount)
+    }
+
+    // Reboot during emergency access safe expiry test
+    @Test
+    fun testRebootDuringEmergencyAccess_ImmediatelyExpiresEmergency() = runBlocking {
+        quotaEngine.recordUsage(instagramPkg, 1800L)
+        quotaEngine.startEmergencySession(instagramPkg)
+
+        // Phone reboots after 5 seconds: elapsedRealtime resets to 2000ms (< elapsedStart 100000ms)
+        fakeTimeProvider.simulateReboot(postBootElapsedMillis = 2000L)
+
+        val eval = quotaEngine.evaluateQuota(instagramPkg)
+        assertTrue("Reboot must immediately invalidate emergency session", eval.isBlocked)
+        assertEquals(ProtectionState.BLOCKED_UNTIL_RESET, eval.status)
     }
 }

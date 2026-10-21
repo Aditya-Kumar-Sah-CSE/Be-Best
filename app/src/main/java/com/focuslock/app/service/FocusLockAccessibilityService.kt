@@ -5,11 +5,14 @@ import android.content.Intent
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityEvent
 import com.focuslock.app.FocusLockApp
+import com.focuslock.app.domain.engine.ProtectionState
 import com.focuslock.app.presentation.BlockingActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class FocusLockAccessibilityService : AccessibilityService() {
@@ -18,6 +21,9 @@ class FocusLockAccessibilityService : AccessibilityService() {
 
     private var currentForegroundPackage: String? = null
     private var currentSessionStartElapsed: Long = 0L
+    private var emergencyExpiryJob: Job? = null
+    private var lastBlockedPackage: String? = null
+    private var lastBlockLaunchElapsed: Long = 0L
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null || event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
@@ -51,7 +57,34 @@ class FocusLockAccessibilityService : AccessibilityService() {
             val app = FocusLockApp.instance.appRepository.getApp(packageName)
             if (app != null && app.enabled) {
                 val evaluation = FocusLockApp.instance.quotaEngine.evaluateQuota(packageName)
+                if (evaluation.status == ProtectionState.EMERGENCY_ACTIVE) {
+                    // Protected app is within its one-time 30-second emergency access window
+                    emergencyExpiryJob?.cancel()
+                    val remainingMs = (evaluation.remainingEmergencySeconds * 1000L).coerceAtLeast(100L)
+                    emergencyExpiryJob = serviceScope.launch {
+                        delay(remainingMs)
+                        // Once 30s expires: re-evaluate and block immediately if user is still inside app
+                        val reEval = FocusLockApp.instance.quotaEngine.evaluateQuota(packageName)
+                        if (reEval.isBlocked && currentForegroundPackage == packageName) {
+                            launchBlockScreen(packageName, app.displayName)
+                        }
+                    }
+                    return@launch
+                }
+
                 if (evaluation.isBlocked) {
+                    // Prevent repeated launch loops if BlockingActivity is already visibly displayed
+                    if (BlockingActivity.isBlockingScreenVisible && BlockingActivity.activeBlockedPackage == packageName) {
+                        return@launch
+                    }
+
+                    val nowElapsed = SystemClock.elapsedRealtime()
+                    if (lastBlockedPackage == packageName && (nowElapsed - lastBlockLaunchElapsed) < 1200L) {
+                        return@launch
+                    }
+
+                    lastBlockedPackage = packageName
+                    lastBlockLaunchElapsed = nowElapsed
                     launchBlockScreen(packageName, app.displayName)
                 }
             }
@@ -72,6 +105,7 @@ class FocusLockAccessibilityService : AccessibilityService() {
     }
 
     private fun recordPreviousSession() {
+        emergencyExpiryJob?.cancel()
         val prevPkg = currentForegroundPackage ?: return
         val start = currentSessionStartElapsed
         if (start > 0L) {

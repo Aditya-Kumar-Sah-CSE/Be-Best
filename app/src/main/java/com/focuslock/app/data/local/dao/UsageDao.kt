@@ -25,6 +25,16 @@ interface UsageDao {
     @Query("UPDATE daily_usage SET usedSeconds = usedSeconds + :additionalSeconds, updatedAt = :timestamp, isBlocked = (usedSeconds + :additionalSeconds >= quotaSeconds) WHERE packageName = :packageName AND localDate = :date")
     suspend fun incrementUsage(packageName: String, date: String, additionalSeconds: Long, timestamp: Long)
 
+    @Query("UPDATE daily_usage SET emergencyUsed = 1, emergencyStartedAt = :startedAt, emergencyExpiresAt = :expiresAt, emergencyElapsedRealtimeAtStart = :elapsedStart, updatedAt = :now WHERE packageName = :packageName AND localDate = :date")
+    suspend fun recordEmergencySession(
+        packageName: String,
+        date: String,
+        startedAt: Long,
+        expiresAt: Long,
+        elapsedStart: Long,
+        now: Long
+    )
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertUsageSession(session: UsageSessionEntity)
 

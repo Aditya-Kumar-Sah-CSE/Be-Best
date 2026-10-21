@@ -24,7 +24,7 @@ import com.focuslock.app.data.local.entity.UserSettingsEntity
         ProtectionEventEntity::class,
         UserSettingsEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class FocusLockDatabase : RoomDatabase() {
@@ -38,6 +38,15 @@ abstract class FocusLockDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: FocusLockDatabase? = null
 
+        val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE daily_usage ADD COLUMN emergencyUsed INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE daily_usage ADD COLUMN emergencyStartedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE daily_usage ADD COLUMN emergencyExpiresAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE daily_usage ADD COLUMN emergencyElapsedRealtimeAtStart INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getInstance(context: Context): FocusLockDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -45,6 +54,7 @@ abstract class FocusLockDatabase : RoomDatabase() {
                     FocusLockDatabase::class.java,
                     "focuslock_local.db"
                 )
+                    .addMigrations(MIGRATION_2_3)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

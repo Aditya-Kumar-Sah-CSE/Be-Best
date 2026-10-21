@@ -19,5 +19,9 @@ data class DailyUsageEntity(
     val usedSeconds: Long = 0L,
     val quotaSeconds: Long = 1800L,
     val isBlocked: Boolean = false,
+    val emergencyUsed: Boolean = false,
+    val emergencyStartedAt: Long = 0L,
+    val emergencyExpiresAt: Long = 0L,
+    val emergencyElapsedRealtimeAtStart: Long = 0L,
     val updatedAt: Long = System.currentTimeMillis()
 )
