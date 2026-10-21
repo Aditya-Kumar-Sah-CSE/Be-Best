@@ -225,8 +225,8 @@ class AppUpdateManagerTest {
 
             val parsedInfo = updateManager.parseMetadata(jsonContent)
 
-            assertEquals("Remote metadata versionCode must be 2", 2L, parsedInfo.versionCode)
-            assertEquals("Remote metadata versionName must be 1.1.0", "1.1.0", parsedInfo.versionName)
+            assertEquals("Remote metadata versionCode must be 3", 3L, parsedInfo.versionCode)
+            assertEquals("Remote metadata versionName must be 1.2.0", "1.2.0", parsedInfo.versionName)
             assertTrue("Remote metadata apkUrl must be HTTPS", parsedInfo.apkUrl.startsWith("https://"))
             assertEquals(64, parsedInfo.apkSha256.length)
             assertTrue("Remote metadata apkSizeBytes must be > 0", parsedInfo.apkSizeBytes > 0)

@@ -282,9 +282,6 @@ class AppUpdateManager(
     private fun fetchMetadataString(urlStr: String): String {
         val cacheBusterUrl = if (urlStr.contains("?")) "$urlStr&_cb=${System.currentTimeMillis()}" else "$urlStr?_cb=${System.currentTimeMillis()}"
         val conn = openConnectionWithRedirects(cacheBusterUrl)
-        conn.useCaches = false
-        conn.setRequestProperty("Cache-Control", "no-cache, no-store, must-revalidate")
-        conn.setRequestProperty("Pragma", "no-cache")
         return try {
             conn.inputStream.bufferedReader().use { it.readText() }
         } finally {
@@ -331,7 +328,11 @@ class AppUpdateManager(
         val finalConn = URL(currentUrl).openConnection() as HttpURLConnection
         finalConn.connectTimeout = 15000
         finalConn.readTimeout = 20000
+        finalConn.instanceFollowRedirects = false
+        finalConn.useCaches = false
         finalConn.setRequestProperty("User-Agent", "FocusLock-Android-Updater")
+        finalConn.setRequestProperty("Cache-Control", "no-cache, no-store, must-revalidate")
+        finalConn.setRequestProperty("Pragma", "no-cache")
         finalConn.connect()
         return finalConn
     }
