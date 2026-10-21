@@ -119,15 +119,9 @@ class AppUpdateManager(
         val tempApkFile = File(updatesDir, "focuslock_update_${updateInfo.versionCode}.apk")
         if (tempApkFile.exists()) tempApkFile.delete()
 
-        var connection: HttpsURLConnection? = null
+        var connection: HttpURLConnection? = null
         try {
-            val url = URL(updateInfo.apkUrl)
-            connection = url.openConnection() as HttpsURLConnection
-            connection.connectTimeout = 15000
-            connection.readTimeout = 20000
-            connection.instanceFollowRedirects = true
-            connection.connect()
-
+            connection = openConnectionWithRedirects(updateInfo.apkUrl)
             val responseCode = connection.responseCode
             if (responseCode !in 200..299) {
                 throw Exception("Server returned HTTP $responseCode")
@@ -259,18 +253,53 @@ class AppUpdateManager(
     }
 
     private fun fetchMetadataString(urlStr: String): String {
-        val url = URL(urlStr)
-        val conn = (url.openConnection() as HttpURLConnection).apply {
-            connectTimeout = 10000
-            readTimeout = 15000
-            instanceFollowRedirects = true
-            requestMethod = "GET"
-        }
+        val conn = openConnectionWithRedirects(urlStr)
         return try {
             conn.inputStream.bufferedReader().use { it.readText() }
         } finally {
             conn.disconnect()
         }
+    }
+
+    private fun openConnectionWithRedirects(initialUrl: String): HttpURLConnection {
+        var currentUrl = initialUrl
+        var redirects = 0
+        while (redirects < 5) {
+            val url = URL(currentUrl)
+            val conn = url.openConnection() as HttpURLConnection
+            conn.connectTimeout = 15000
+            conn.readTimeout = 20000
+            conn.instanceFollowRedirects = false
+            conn.setRequestProperty("User-Agent", "FocusLock-Android-Updater")
+            conn.connect()
+
+            val code = conn.responseCode
+            if (code == HttpURLConnection.HTTP_MOVED_PERM ||
+                code == HttpURLConnection.HTTP_MOVED_TEMP ||
+                code == HttpURLConnection.HTTP_SEE_OTHER ||
+                code == 307 || code == 308
+            ) {
+                val newLocation = conn.getHeaderField("Location")
+                conn.disconnect()
+                if (newLocation.isNullOrBlank()) {
+                    throw Exception("Redirect HTTP $code without Location header")
+                }
+                currentUrl = if (newLocation.startsWith("http")) {
+                    newLocation
+                } else {
+                    URL(url, newLocation).toString()
+                }
+                redirects++
+            } else {
+                return conn
+            }
+        }
+        val finalConn = URL(currentUrl).openConnection() as HttpURLConnection
+        finalConn.connectTimeout = 15000
+        finalConn.readTimeout = 20000
+        finalConn.setRequestProperty("User-Agent", "FocusLock-Android-Updater")
+        finalConn.connect()
+        return finalConn
     }
 
     fun parseMetadata(jsonStr: String): UpdateInfo {

@@ -15,5 +15,6 @@ build/
 .cxx
 local.properties
 *.apk
+!release/*.apk
 *.aab
 .kotlin/
