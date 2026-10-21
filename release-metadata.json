@@ -1,10 +1,10 @@
 {
   "versionCode": 2,
   "versionName": "1.1.0",
-  "releaseNotes": "• In-App Auto-Update System with cryptographic SHA-256 validation\n• Real per-app daily blocking with individual daily quotas\n• One-time 30-second emergency unlock mechanism\n• Enhanced Google Play Protect compliance and APK integrity\n• Anti-loop guards and smooth Jetpack Compose UI transitions",
+  "releaseNotes": "• Dynamic Theme Switching (System, Dark Navy, Light)\n• 4:00 AM Daily Quota Renewal Cycle\n• Continuous 30-Minute Screen Time Break Alert (Walk & Drink Water)\n• Immediate Foreground Quota Enforcement and Back-Button Guards\n• Smart In-App Update Notifications with Dismissal Persistence",
   "apkUrl": "https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/release/FocusLock-v1.1.0.apk",
-  "apkSha256": "0BE8EDC2028C33A958EF0AF3E7CACCBE4606254CCC368E0E00DF102084AC2EE6",
-  "apkSizeBytes": 18727664,
+  "apkSha256": "A47A49641382E521C4B1194B08B1ADA32EEB08B81AD5BCD755E0D64652CD454D",
+  "apkSizeBytes": 12152054,
   "minSupportedVersionCode": 1,
   "isMandatory": false
 }

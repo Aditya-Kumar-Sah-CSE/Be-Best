@@ -75,7 +75,7 @@ fun AnalyticsScreen(
     val uiState by viewModel.uiState.collectAsState()
 
     Scaffold(
-        containerColor = DarkBackground,
+        containerColor = com.focuslock.app.core.designsystem.AppTheme.colors.background,
         bottomBar = {
             FocusLockBottomBar(
                 currentRoute = "analytics",

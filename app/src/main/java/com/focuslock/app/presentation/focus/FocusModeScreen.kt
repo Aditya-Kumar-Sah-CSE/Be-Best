@@ -128,7 +128,7 @@ fun FocusModeScreen(
     )
 
     Scaffold(
-        containerColor = DarkBackground,
+        containerColor = com.focuslock.app.core.designsystem.AppTheme.colors.background,
         bottomBar = {
             if (showBottomBar) {
                 FocusLockBottomBar(

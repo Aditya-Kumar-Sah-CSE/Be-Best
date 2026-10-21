@@ -41,6 +41,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,6 +58,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.focuslock.app.FocusLockApp
+import com.focuslock.app.core.designsystem.AppTheme
 import com.focuslock.app.core.designsystem.BrandCyan
 import com.focuslock.app.core.designsystem.BrandIndigo
 import com.focuslock.app.core.designsystem.DangerRed
@@ -71,6 +73,7 @@ import com.focuslock.app.core.designsystem.FocusLockTopBar
 import com.focuslock.app.core.designsystem.Neutral200
 import com.focuslock.app.core.designsystem.Neutral400
 import com.focuslock.app.core.designsystem.SuccessGreen
+import com.focuslock.app.core.designsystem.ThemeManager
 import com.focuslock.app.core.designsystem.ThemeMode
 
 @Composable
@@ -94,16 +97,18 @@ fun SettingsScreen(
     var showGeneralSection by remember { mutableStateOf(false) }
     var showHardcoreSection by remember { mutableStateOf(false) }
     var showLimitsSection by remember { mutableStateOf(false) }
+    var showWellbeingSection by remember { mutableStateOf(false) }
     var showPrivacySection by remember { mutableStateOf(false) }
     var showAboutSection by remember { mutableStateOf(false) }
 
     val prefs = remember { context.getSharedPreferences("focuslock_app_prefs", Context.MODE_PRIVATE) }
-    var currentTheme by remember {
-        mutableStateOf(ThemeMode.valueOf(prefs.getString("theme_mode", ThemeMode.SYSTEM.name) ?: ThemeMode.SYSTEM.name))
+    val currentTheme by ThemeManager.themeMode.collectAsState()
+    var breakAlertEnabled by remember {
+        mutableStateOf(prefs.getBoolean("continuous_break_alert", true))
     }
 
     Scaffold(
-        containerColor = DarkBackground,
+        containerColor = AppTheme.colors.background,
         bottomBar = {
             if (showBottomBar) {
                 FocusLockBottomBar(
@@ -153,7 +158,7 @@ fun SettingsScreen(
                                 text = "Appearance Theme",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color.White
+                                color = AppTheme.colors.textPrimary
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Row(
@@ -164,21 +169,20 @@ fun SettingsScreen(
                                     ThemeMode.SYSTEM to "System",
                                     ThemeMode.DARK to "Dark Navy",
                                     ThemeMode.LIGHT to "Light"
-                                ).forEach { (mode, label) ->
+                               ).forEach { (mode, label) ->
                                     val isSelected = currentTheme == mode
                                     Box(
                                         modifier = Modifier
                                             .weight(1f)
                                             .clip(RoundedCornerShape(10.dp))
-                                            .background(if (isSelected) BrandIndigo else DarkSurfaceElevated)
+                                            .background(if (isSelected) BrandIndigo else AppTheme.colors.surfaceElevated)
                                             .border(
                                                 width = 1.dp,
-                                                color = if (isSelected) BrandCyan else DarkBorderSubtle,
+                                                color = if (isSelected) BrandCyan else AppTheme.colors.borderSubtle,
                                                 shape = RoundedCornerShape(10.dp)
                                             )
                                             .clickable {
-                                                currentTheme = mode
-                                                prefs.edit().putString("theme_mode", mode.name).apply()
+                                                ThemeManager.setTheme(context, mode)
                                             }
                                             .padding(vertical = 10.dp),
                                         contentAlignment = Alignment.Center
@@ -187,7 +191,7 @@ fun SettingsScreen(
                                             text = label,
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color.White
+                                            color = if (isSelected) Color.White else AppTheme.colors.textPrimary
                                         )
                                     }
                                 }
@@ -196,35 +200,83 @@ fun SettingsScreen(
                     }
                 }
 
-                // Item 2: Daily Limits (Screen 9)
+                // Item 2: Daily Limits & 4:00 AM Reset
                 item {
                     SettingsGroupCard(
                         icon = Icons.Default.Timer,
                         iconColor = BrandIndigo,
-                        title = "Daily Limits",
-                        subtitle = "Default 30m limit, midnight reset cycle",
+                        title = "Daily Limits & Reset",
+                        subtitle = "Default 30m limit • Renews daily at 4:00 AM",
                         isExpanded = showLimitsSection,
                         onClick = { showLimitsSection = !showLimitsSection }
                     ) {
                         Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
                             Text(
-                                text = "Calendar Day Quotas",
+                                text = "Daily Quota Renewal",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color.White
+                                color = AppTheme.colors.textPrimary
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Daily quotas default to 30 minutes per monitored application and automatically reset each local calendar day at midnight (00:00:00). All quota calculations persist across device restarts.",
+                                text = "All app quotas reset every morning at 4:00 AM (04:00:00). This ensures late-night focus sessions are never interrupted prematurely at midnight.",
                                 fontSize = 12.sp,
-                                color = Neutral400,
+                                color = AppTheme.colors.textSecondary,
                                 lineHeight = 16.sp
                             )
                         }
                     }
                 }
 
-                // Item 3: Hardcore Mode (Screen 9)
+                // Item 3: 30-Minute Screen Time Break Alert
+                item {
+                    SettingsGroupCard(
+                        icon = Icons.Default.Info,
+                        iconColor = BrandCyan,
+                        title = "Continuous Screen Break Alert",
+                        subtitle = "5-min break alert after 30 min continuous usage",
+                        isExpanded = showWellbeingSection,
+                        onClick = { showWellbeingSection = !showWellbeingSection }
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "30-Min Walk & Drink Water Alert",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = AppTheme.colors.textPrimary
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Automatically alerts you to take a 5-minute break to walk, stretch, and drink water when your screen is on continuously for 30 minutes.",
+                                        fontSize = 12.sp,
+                                        color = AppTheme.colors.textSecondary,
+                                        lineHeight = 16.sp
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Switch(
+                                    checked = breakAlertEnabled,
+                                    onCheckedChange = { checked ->
+                                        breakAlertEnabled = checked
+                                        prefs.edit().putBoolean("continuous_break_alert", checked).apply()
+                                    },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = Color.White,
+                                        checkedTrackColor = BrandCyan
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Item 4: Hardcore Mode (Screen 9)
                 item {
                     SettingsGroupCard(
                         icon = Icons.Default.Lock,
@@ -450,8 +502,8 @@ private fun SettingsGroupCard(
             .fillMaxWidth()
             .clickable { onClick() },
         cornerRadius = 16.dp,
-        backgroundColor = DarkSurface,
-        borderColor = DarkBorder,
+        backgroundColor = AppTheme.colors.surface,
+        borderColor = AppTheme.colors.border,
         contentPadding = 14.dp
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -486,12 +538,12 @@ private fun SettingsGroupCard(
                             text = title,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = Color.White
+                            color = AppTheme.colors.textPrimary
                         )
                         Text(
                             text = subtitle,
                             fontSize = 12.sp,
-                            color = Neutral400
+                            color = AppTheme.colors.textSecondary
                         )
                     }
                 }
@@ -499,7 +551,7 @@ private fun SettingsGroupCard(
                 Icon(
                     imageVector = Icons.Default.ChevronRight,
                     contentDescription = null,
-                    tint = Neutral400,
+                    tint = AppTheme.colors.textSecondary,
                     modifier = Modifier.size(20.dp)
                 )
             }

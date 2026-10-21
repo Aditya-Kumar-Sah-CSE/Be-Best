@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -21,8 +20,8 @@ fun FocusCard(
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 16.dp,
     shape: Shape = RoundedCornerShape(cornerRadius),
-    backgroundColor: Color = DarkSurface,
-    borderColor: Color = DarkBorder,
+    backgroundColor: Color = AppTheme.colors.surface,
+    borderColor: Color = AppTheme.colors.border,
     contentPadding: Dp = 16.dp,
     content: @Composable BoxScope.() -> Unit
 ) {
@@ -51,7 +50,7 @@ fun FocusCard(
 fun GlassmorphicCard(
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 16.dp,
-    backgroundColor: Color = DarkSurface,
+    backgroundColor: Color = AppTheme.colors.surface,
     content: @Composable BoxScope.() -> Unit
 ) {
     FocusCard(

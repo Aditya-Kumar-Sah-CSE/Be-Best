@@ -17,8 +17,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.rememberNavController
 import com.focuslock.app.core.designsystem.FocusLockTheme
+import com.focuslock.app.core.designsystem.ThemeManager
 import com.focuslock.app.core.designsystem.ThemeMode
 import com.focuslock.app.core.update.AppUpdateManager
+import com.focuslock.app.core.update.UpdateState
 import com.focuslock.app.presentation.navigation.FocusLockNavGraph
 import com.focuslock.app.presentation.navigation.Screen
 import com.focuslock.app.presentation.update.UpdateDialog
@@ -31,16 +33,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        ThemeManager.init(this)
         val prefs = getSharedPreferences("focuslock_app_prefs", MODE_PRIVATE)
         val isOnboarded = prefs.getBoolean("is_onboarded", false)
-        val savedTheme = prefs.getString("theme_mode", ThemeMode.SYSTEM.name) ?: ThemeMode.SYSTEM.name
-        val themeMode = try {
-            ThemeMode.valueOf(savedTheme)
-        } catch (e: Exception) {
-            ThemeMode.SYSTEM
-        }
 
         setContent {
+            val themeMode by ThemeManager.themeMode.collectAsState()
             FocusLockTheme(themeMode = themeMode) {
                 val navController = rememberNavController()
                 val coroutineScope = rememberCoroutineScope()
@@ -78,7 +76,8 @@ class MainActivity : ComponentActivity() {
                             updateManager.promptInstall(this@MainActivity, apkFile)
                         },
                         onDismiss = {
-                            updateManager.dismissForSession()
+                            val verCode = (updateState as? UpdateState.UpdateAvailable)?.info?.versionCode ?: 0L
+                            updateManager.dismissForSession(this@MainActivity, verCode)
                         },
                         onRetry = {
                             coroutineScope.launch {

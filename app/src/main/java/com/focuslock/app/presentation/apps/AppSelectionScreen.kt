@@ -98,7 +98,7 @@ fun AppSelectionScreen(
     var showSortMenu by remember { mutableStateOf(false) }
 
     Scaffold(
-        containerColor = DarkBackground,
+        containerColor = com.focuslock.app.core.designsystem.AppTheme.colors.background,
         bottomBar = {
             if (showBottomBar) {
                 FocusLockBottomBar(

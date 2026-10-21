@@ -90,7 +90,7 @@ fun DashboardScreen(
     }
 
     Scaffold(
-        containerColor = DarkBackground,
+        containerColor = com.focuslock.app.core.designsystem.AppTheme.colors.background,
         bottomBar = {
             FocusLockBottomBar(
                 currentRoute = "dashboard",

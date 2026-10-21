@@ -93,6 +93,17 @@ class BlockingActivity : ComponentActivity() {
             null
         }
 
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                    addCategory(Intent.CATEGORY_HOME)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                startActivity(homeIntent)
+                finish()
+            }
+        })
+
         setContent {
             FocusLockTheme {
                 BlockingScreen(
@@ -337,7 +348,7 @@ fun BlockingScreen(
                             )
                         } else {
                             Text(
-                                text = "Locked until tomorrow",
+                                text = "Locked until 4:00 AM",
                                 fontSize = 11.sp,
                                 color = Neutral400
                             )

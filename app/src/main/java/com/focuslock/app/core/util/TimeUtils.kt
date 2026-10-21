@@ -5,6 +5,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
+import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -15,6 +16,7 @@ interface TimeProvider {
     fun getZoneId(): ZoneId
     fun getTodayLocalDate(): LocalDate
     fun getNextMidnightMillis(): Long
+    fun getNextDailyResetMillis(): Long = getNextMidnightMillis()
     fun getStartOfDayMillis(): Long
 }
 
@@ -22,28 +24,54 @@ class SystemTimeProvider(
     private val zoneIdProvider: () -> ZoneId = { ZoneId.systemDefault() }
 ) : TimeProvider {
 
+    companion object {
+        const val DAILY_RESET_HOUR = 4 // Quotas reset at 4:00 AM local time
+    }
+
     override fun currentTimeMillis(): Long = System.currentTimeMillis()
 
     override fun elapsedRealtime(): Long = android.os.SystemClock.elapsedRealtime()
 
     override fun getZoneId(): ZoneId = zoneIdProvider()
 
-    override fun getTodayLocalDate(): LocalDate = LocalDate.now(getZoneId())
+    /**
+     * Determines the active daily quota cycle.
+     * If the time is before 4:00 AM, the cycle belongs to yesterday's 4 AM window.
+     * At 4:00 AM, the new cycle begins.
+     */
+    override fun getTodayLocalDate(): LocalDate {
+        val now = ZonedDateTime.ofInstant(Instant.ofEpochMilli(currentTimeMillis()), getZoneId())
+        return if (now.hour < DAILY_RESET_HOUR) {
+            now.toLocalDate().minusDays(1)
+        } else {
+            now.toLocalDate()
+        }
+    }
 
+    /**
+     * Start of the current 4:00 AM quota cycle in epoch milliseconds.
+     */
     override fun getStartOfDayMillis(): Long {
-        val today = getTodayLocalDate()
-        val startOfDay = today.atStartOfDay(getZoneId())
-        return startOfDay.toInstant().toEpochMilli()
+        val cycleDate = getTodayLocalDate()
+        val cycleStart = cycleDate.atTime(DAILY_RESET_HOUR, 0).atZone(getZoneId())
+        return cycleStart.toInstant().toEpochMilli()
     }
 
+    /**
+     * Next 4:00 AM reset in epoch milliseconds.
+     */
     override fun getNextMidnightMillis(): Long {
-        val tomorrow = getTodayLocalDate().plusDays(1)
-        val midnight = tomorrow.atStartOfDay(getZoneId())
-        return midnight.toInstant().toEpochMilli()
+        val cycleDate = getTodayLocalDate()
+        val nextReset = cycleDate.plusDays(1).atTime(DAILY_RESET_HOUR, 0).atZone(getZoneId())
+        return nextReset.toInstant().toEpochMilli()
     }
+
+    override fun getNextDailyResetMillis(): Long = getNextMidnightMillis()
 }
 
 object TimeUtils {
+
+    const val DAILY_RESET_HOUR = 4
 
     private val DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd", Locale.US)
 
@@ -76,10 +104,12 @@ object TimeUtils {
 
     fun getTodayDateString(): String = formatDate(defaultProvider.getTodayLocalDate())
 
-    fun getSecondsUntilNextMidnight(): Long {
-        val diff = defaultProvider.getNextMidnightMillis() - defaultProvider.currentTimeMillis()
+    fun getSecondsUntilNextDailyReset(): Long {
+        val diff = defaultProvider.getNextDailyResetMillis() - defaultProvider.currentTimeMillis()
         return (diff / 1000).coerceAtLeast(0L)
     }
+
+    fun getSecondsUntilNextMidnight(): Long = getSecondsUntilNextDailyReset()
 
     fun getDayStartMillis(): Long = defaultProvider.getStartOfDayMillis()
 }

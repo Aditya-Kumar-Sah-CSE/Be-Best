@@ -666,11 +666,11 @@ fun FocusLockBottomBar(
     onNavigateToSettings: () -> Unit
 ) {
     NavigationBar(
-        containerColor = DarkBackground,
+        containerColor = AppTheme.colors.background,
         tonalElevation = 0.dp,
         modifier = Modifier
             .fillMaxWidth()
-            .border(width = 1.dp, color = DarkBorderSubtle, shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
+            .border(width = 1.dp, color = AppTheme.colors.borderSubtle, shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
             .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
     ) {
         val items = listOf(
@@ -701,10 +701,10 @@ fun FocusLockBottomBar(
                     )
                 },
                 colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = BrandCyan,
-                    selectedTextColor = BrandCyan,
-                    unselectedIconColor = Neutral600,
-                    unselectedTextColor = Neutral600,
+                    selectedIconColor = AppTheme.colors.primary,
+                    selectedTextColor = AppTheme.colors.primary,
+                    unselectedIconColor = AppTheme.colors.textMuted,
+                    unselectedTextColor = AppTheme.colors.textMuted,
                     indicatorColor = Color.Transparent
                 )
             )

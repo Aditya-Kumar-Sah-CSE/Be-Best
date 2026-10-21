@@ -59,6 +59,16 @@
             android:theme="@style/Theme.FocusLock.Blocking"
             tools:ignore="LockedOrientationActivity" />
 
+        <!-- 30-Minute Continuous Screen Break Alert Activity -->
+        <activity
+            android:name=".presentation.breakalert.BreakAlertActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.FocusLock.Blocking"
+            tools:ignore="LockedOrientationActivity" />
+
         <!-- Core Accessibility Service for Foreground Monitoring -->
         <service
             android:name=".service.FocusLockAccessibilityService"

@@ -84,6 +84,13 @@ class AppUpdateManager(
 
             val currentCode = getInstalledVersionCode(context)
             if (info.versionCode > currentCode) {
+                val prefs = context.getSharedPreferences("focuslock_app_prefs", Context.MODE_PRIVATE)
+                val dismissedVersion = prefs.getLong("dismissed_update_version", -1L)
+                if (!force && info.versionCode <= dismissedVersion) {
+                    _updateState.value = UpdateState.Idle
+                    return@withContext null
+                }
+
                 if (currentCode >= info.minSupportedVersionCode) {
                     _updateState.value = UpdateState.UpdateAvailable(info)
                     return@withContext info
@@ -266,9 +273,13 @@ class AppUpdateManager(
         }
     }
 
-    fun dismissForSession() {
+    fun dismissForSession(context: Context? = null, versionCode: Long = 0L) {
         isDismissedForSession = true
         _updateState.value = UpdateState.DismissedForSession
+        if (context != null && versionCode > 0L) {
+            val prefs = context.getSharedPreferences("focuslock_app_prefs", Context.MODE_PRIVATE)
+            prefs.edit().putLong("dismissed_update_version", versionCode).apply()
+        }
     }
 
     fun resetState() {

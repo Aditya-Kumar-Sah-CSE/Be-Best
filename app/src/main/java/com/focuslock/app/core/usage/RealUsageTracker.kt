@@ -141,4 +141,58 @@ class RealUsageTracker(
             }
         }
     }
+
+    /**
+     * Synchronizes and returns genuine foreground usage for a specific protected application.
+     * Guaranteed to update Room immediately so quota checks are authoritative.
+     */
+    suspend fun syncPackageUsage(packageName: String): Long = withContext(Dispatchers.IO) {
+        val manager = usageStatsManager ?: return@withContext 0L
+        val startDay = timeProvider.getStartOfDayMillis()
+        val now = timeProvider.currentTimeMillis()
+
+        val stats = manager.queryUsageStats(
+            UsageStatsManager.INTERVAL_DAILY,
+            startDay,
+            now
+        ) ?: return@withContext 0L
+
+        val stat = stats.find { it.packageName == packageName }
+        val measuredSeconds = (stat?.totalTimeInForeground ?: 0L) / 1000L
+
+        val todayDate = TimeUtils.formatDate(timeProvider.getTodayLocalDate())
+        val tzId = timeProvider.getZoneId().id
+        val existing = usageDao.getDailyUsageForApp(packageName, todayDate)
+
+        if (existing != null) {
+            val maxSeconds = maxOf(measuredSeconds, existing.usedSeconds)
+            if (maxSeconds > existing.usedSeconds) {
+                usageDao.insertOrUpdateDailyUsage(
+                    existing.copy(
+                        usedSeconds = maxSeconds,
+                        isBlocked = maxSeconds >= existing.quotaSeconds,
+                        updatedAt = now
+                    )
+                )
+            }
+            maxSeconds
+        } else if (measuredSeconds > 0L) {
+            val app = protectedAppDao.getAppByPackageName(packageName)
+            val quota = app?.dailyLimitSeconds ?: 1800L
+            usageDao.insertOrUpdateDailyUsage(
+                DailyUsageEntity(
+                    packageName = packageName,
+                    localDate = todayDate,
+                    timezoneId = tzId,
+                    usedSeconds = measuredSeconds,
+                    quotaSeconds = quota,
+                    isBlocked = measuredSeconds >= quota,
+                    updatedAt = now
+                )
+            )
+            measuredSeconds
+        } else {
+            0L
+        }
+    }
 }
