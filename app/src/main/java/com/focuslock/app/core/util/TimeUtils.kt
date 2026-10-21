@@ -25,7 +25,7 @@ class SystemTimeProvider(
 ) : TimeProvider {
 
     companion object {
-        const val DAILY_RESET_HOUR = 4 // Quotas reset at 4:00 AM local time
+        const val DAILY_RESET_HOUR = 0 // Quotas reset at 12:00 AM (midnight) local time
     }
 
     override fun currentTimeMillis(): Long = System.currentTimeMillis()
@@ -35,34 +35,28 @@ class SystemTimeProvider(
     override fun getZoneId(): ZoneId = zoneIdProvider()
 
     /**
-     * Determines the active daily quota cycle.
-     * If the time is before 4:00 AM, the cycle belongs to yesterday's 4 AM window.
-     * At 4:00 AM, the new cycle begins.
+     * Determines the active daily quota cycle (12:00 AM midnight to midnight).
      */
     override fun getTodayLocalDate(): LocalDate {
         val now = ZonedDateTime.ofInstant(Instant.ofEpochMilli(currentTimeMillis()), getZoneId())
-        return if (now.hour < DAILY_RESET_HOUR) {
-            now.toLocalDate().minusDays(1)
-        } else {
-            now.toLocalDate()
-        }
+        return now.toLocalDate()
     }
 
     /**
-     * Start of the current 4:00 AM quota cycle in epoch milliseconds.
+     * Start of today (12:00 AM midnight) in epoch milliseconds.
      */
     override fun getStartOfDayMillis(): Long {
         val cycleDate = getTodayLocalDate()
-        val cycleStart = cycleDate.atTime(DAILY_RESET_HOUR, 0).atZone(getZoneId())
+        val cycleStart = cycleDate.atStartOfDay(getZoneId())
         return cycleStart.toInstant().toEpochMilli()
     }
 
     /**
-     * Next 4:00 AM reset in epoch milliseconds.
+     * Next 12:00 AM midnight reset in epoch milliseconds.
      */
     override fun getNextMidnightMillis(): Long {
         val cycleDate = getTodayLocalDate()
-        val nextReset = cycleDate.plusDays(1).atTime(DAILY_RESET_HOUR, 0).atZone(getZoneId())
+        val nextReset = cycleDate.plusDays(1).atStartOfDay(getZoneId())
         return nextReset.toInstant().toEpochMilli()
     }
 
@@ -71,7 +65,7 @@ class SystemTimeProvider(
 
 object TimeUtils {
 
-    const val DAILY_RESET_HOUR = 4
+    const val DAILY_RESET_HOUR = 0
 
     private val DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd", Locale.US)
 

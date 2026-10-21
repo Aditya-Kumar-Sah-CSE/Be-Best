@@ -348,7 +348,7 @@ fun BlockingScreen(
                             )
                         } else {
                             Text(
-                                text = "Locked until 4:00 AM",
+                                text = "Locked until 12:00 AM (Midnight)",
                                 fontSize = 11.sp,
                                 color = Neutral400
                             )

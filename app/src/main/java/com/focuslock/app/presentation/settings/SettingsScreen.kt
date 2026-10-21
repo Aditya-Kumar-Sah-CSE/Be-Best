@@ -200,13 +200,13 @@ fun SettingsScreen(
                     }
                 }
 
-                // Item 2: Daily Limits & 4:00 AM Reset
+                // Item 2: Daily Limits & 12:00 AM Reset
                 item {
                     SettingsGroupCard(
                         icon = Icons.Default.Timer,
                         iconColor = BrandIndigo,
                         title = "Daily Limits & Reset",
-                        subtitle = "Default 30m limit • Renews daily at 4:00 AM",
+                        subtitle = "Default 30m limit • Renews daily at 12:00 AM (Midnight)",
                         isExpanded = showLimitsSection,
                         onClick = { showLimitsSection = !showLimitsSection }
                     ) {
@@ -219,7 +219,7 @@ fun SettingsScreen(
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "All app quotas reset every morning at 4:00 AM (04:00:00). This ensures late-night focus sessions are never interrupted prematurely at midnight.",
+                                text = "All app quotas reset every night at 12:00 AM midnight (00:00:00). Daily usage counts restart fresh for every new calendar day.",
                                 fontSize = 12.sp,
                                 color = AppTheme.colors.textSecondary,
                                 lineHeight = 16.sp

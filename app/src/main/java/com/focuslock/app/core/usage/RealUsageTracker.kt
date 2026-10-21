@@ -131,7 +131,7 @@ class RealUsageTracker(
 
     /**
      * Resolves authoritative foreground usage in seconds across all Android UsageStatsManager APIs.
-     * Prevents bucket-loss across 4:00 AM cycle / midnight transitions.
+     * Prevents bucket-loss across 12:00 AM midnight transitions.
      */
     fun queryAccurateUsageSeconds(packageName: String): Long {
         val manager = usageStatsManager ?: return 0L
