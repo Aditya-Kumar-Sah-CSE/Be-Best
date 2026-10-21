@@ -2,18 +2,25 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Permissions required for wellbeing tracking & blocking -->
+    <!-- Essential Permissions strictly required for digital wellbeing -->
+    <!-- 1. Usage stats to calculate foreground app screen time -->
     <uses-permission
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!-- 2. Re-arm midnight quota resets after device reboot -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- 3. Standard notification alerts for quota warnings (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <uses-permission
-        android:name="android.permission.QUERY_ALL_PACKAGES"
-        tools:ignore="QueryAllPackagesPermission" />
+
+    <!-- Query declaration for installed launchable apps (Compliant alternative to QUERY_ALL_PACKAGES) -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
 
     <application
         android:name=".FocusLockApp"
@@ -35,7 +42,7 @@
             </intent-filter>
         </activity>
 
-        <!-- Blocking Overlay Activity (3D Modern Lockscreen) -->
+        <!-- Blocking Overlay Activity (Modern Lockscreen) -->
         <activity
             android:name=".presentation.BlockingActivity"
             android:excludeFromRecents="true"

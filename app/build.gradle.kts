@@ -22,17 +22,30 @@ android {
         }
     }
 
+    signingConfigs {
+        create("focuslockSigning") {
+            storeFile = file("focuslock_keystore.jks")
+            storePassword = "focuslock123"
+            keyAlias = "focuslock"
+            keyPassword = "focuslock123"
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = true
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("focuslockSigning")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
         }
         debug {
-            applicationIdSuffix = ".debug"
             isDebuggable = true
+            signingConfig = signingConfigs.getByName("focuslockSigning")
         }
     }
     compileOptions {
