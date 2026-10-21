@@ -84,13 +84,6 @@ class AppUpdateManager(
 
             val currentCode = getInstalledVersionCode(context)
             if (info.versionCode > currentCode) {
-                val prefs = context.getSharedPreferences("focuslock_app_prefs", Context.MODE_PRIVATE)
-                val dismissedVersion = prefs.getLong("dismissed_update_version", -1L)
-                if (!force && info.versionCode <= dismissedVersion) {
-                    _updateState.value = UpdateState.Idle
-                    return@withContext null
-                }
-
                 if (currentCode >= info.minSupportedVersionCode) {
                     _updateState.value = UpdateState.UpdateAvailable(info)
                     return@withContext info
@@ -287,7 +280,11 @@ class AppUpdateManager(
     }
 
     private fun fetchMetadataString(urlStr: String): String {
-        val conn = openConnectionWithRedirects(urlStr)
+        val cacheBusterUrl = if (urlStr.contains("?")) "$urlStr&_cb=${System.currentTimeMillis()}" else "$urlStr?_cb=${System.currentTimeMillis()}"
+        val conn = openConnectionWithRedirects(cacheBusterUrl)
+        conn.useCaches = false
+        conn.setRequestProperty("Cache-Control", "no-cache, no-store, must-revalidate")
+        conn.setRequestProperty("Pragma", "no-cache")
         return try {
             conn.inputStream.bufferedReader().use { it.readText() }
         } finally {
@@ -304,7 +301,10 @@ class AppUpdateManager(
             conn.connectTimeout = 15000
             conn.readTimeout = 20000
             conn.instanceFollowRedirects = false
+            conn.useCaches = false
             conn.setRequestProperty("User-Agent", "FocusLock-Android-Updater")
+            conn.setRequestProperty("Cache-Control", "no-cache, no-store, must-revalidate")
+            conn.setRequestProperty("Pragma", "no-cache")
             conn.connect()
 
             val code = conn.responseCode

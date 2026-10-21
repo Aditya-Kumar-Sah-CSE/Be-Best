@@ -1,10 +1,10 @@
 {
-  "versionCode": 2,
-  "versionName": "1.1.0",
-  "releaseNotes": "• Dynamic Theme Switching (System, Dark Navy, Light)\n• 12:00 AM Midnight Daily Quota Renewal Cycle\n• Continuous 30-Minute Screen Time Break Alert (Walk & Drink Water)\n• Immediate Foreground Quota Enforcement and Back-Button Guards\n• Smart In-App Update Notifications with Dismissal Persistence",
-  "apkUrl": "https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/release/FocusLock-v1.1.0.apk",
-  "apkSha256": "F195F18E5289A6C6695911491D89B9266FE14362CA5EA5E3956228A770A25406",
-  "apkSizeBytes": 12152026,
+  "versionCode": 3,
+  "versionName": "1.2.0",
+  "releaseNotes": "• Dynamic Theme Switching (System, Dark Navy, Light)\n• 12:00 AM Midnight Daily Quota Renewal Cycle\n• Continuous 30-Minute Screen Time Break Alert (Walk & Drink Water)\n• Immediate Foreground Quota Enforcement and Back-Button Guards\n• Multi-Source UsageEvents Ground Truth & Live Lockscreen",
+  "apkUrl": "https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/release/FocusLock-v1.2.0.apk",
+  "apkSha256": "A3FA14C449C62E72BA15C9A8D076D33345C5B6CD0969CB0E2BE0958A307E1C75",
+  "apkSizeBytes": 12152025,
   "minSupportedVersionCode": 1,
   "isMandatory": false
 }
