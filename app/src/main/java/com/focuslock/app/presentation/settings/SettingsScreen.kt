@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
@@ -34,6 +35,7 @@ import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -425,6 +427,9 @@ fun SettingsScreen(
                     val updateManager = remember { com.focuslock.app.core.update.AppUpdateManager.getInstance() }
                     val currentVersion = remember { updateManager.getInstalledVersionName(context) }
                     val coroutineScope = rememberCoroutineScope()
+                    val updateState by updateManager.updateState.collectAsState()
+                    val isChecking = updateState is com.focuslock.app.core.update.UpdateState.Checking
+                    val isUpToDate = updateState is com.focuslock.app.core.update.UpdateState.UpToDate
 
                     SettingsGroupCard(
                         icon = Icons.Default.Info,
@@ -451,10 +456,20 @@ fun SettingsScreen(
                             Spacer(modifier = Modifier.height(14.dp))
                             androidx.compose.material3.OutlinedButton(
                                 onClick = {
-                                    coroutineScope.launch {
-                                        updateManager.checkForUpdates(context, force = true)
+                                    if (!isChecking) {
+                                        coroutineScope.launch {
+                                            val result = updateManager.checkForUpdates(context, force = true)
+                                            if (result == null && updateManager.updateState.value is com.focuslock.app.core.update.UpdateState.UpToDate) {
+                                                android.widget.Toast.makeText(
+                                                    context,
+                                                    "No update available. FocusLock is up to date (v$currentVersion).",
+                                                    android.widget.Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                        }
                                     }
                                 },
+                                enabled = !isChecking,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(44.dp),
@@ -462,18 +477,63 @@ fun SettingsScreen(
                                 border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorderSubtle),
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = BrandCyan)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.SystemUpdate,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = BrandCyan
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Check for Updates",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
+                                if (isChecking) {
+                                    CircularProgressIndicator(
+                                        color = BrandCyan,
+                                        strokeWidth = 2.dp,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Checking for updates...",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.SystemUpdate,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = BrandCyan
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Check for Updates",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+
+                            if (isUpToDate) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(com.focuslock.app.core.designsystem.SuccessGreen.copy(alpha = 0.12f))
+                                        .border(
+                                            1.dp,
+                                            com.focuslock.app.core.designsystem.SuccessGreen.copy(alpha = 0.3f),
+                                            RoundedCornerShape(10.dp)
+                                        )
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = null,
+                                        tint = com.focuslock.app.core.designsystem.SuccessGreen,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "No update available. You're on the latest version.",
+                                        fontSize = 12.sp,
+                                        color = com.focuslock.app.core.designsystem.SuccessGreen,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
                             }
                         }
                     }

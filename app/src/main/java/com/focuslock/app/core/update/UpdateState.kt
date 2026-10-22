@@ -14,6 +14,6 @@ sealed class UpdateState {
     ) : UpdateState()
     data class ReadyToInstall(val apkFile: File, val info: UpdateInfo) : UpdateState()
     data class Error(val message: String, val canRetry: Boolean = true) : UpdateState()
-    object UpToDate : UpdateState()
+    data class UpToDate(val isManualCheck: Boolean = false) : UpdateState()
     object DismissedForSession : UpdateState()
 }

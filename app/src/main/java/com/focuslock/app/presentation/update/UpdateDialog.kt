@@ -70,7 +70,7 @@ fun UpdateDialog(
     onDismiss: () -> Unit,
     onRetry: () -> Unit
 ) {
-    if (updateState is UpdateState.Idle || updateState is UpdateState.UpToDate || updateState is UpdateState.DismissedForSession) {
+    if (updateState is UpdateState.Idle || (updateState is UpdateState.UpToDate && !updateState.isManualCheck) || updateState is UpdateState.DismissedForSession) {
         return
     }
 
@@ -105,18 +105,24 @@ fun UpdateDialog(
                     modifier = Modifier
                         .size(56.dp)
                         .clip(CircleShape)
-                        .background(BrandCyan.copy(alpha = 0.15f))
+                        .background(
+                            when (updateState) {
+                                is UpdateState.ReadyToInstall, is UpdateState.UpToDate -> SuccessGreen.copy(alpha = 0.15f)
+                                is UpdateState.Error -> DangerRed.copy(alpha = 0.15f)
+                                else -> BrandCyan.copy(alpha = 0.15f)
+                            }
+                        )
                 ) {
                     Icon(
                         imageVector = when (updateState) {
-                            is UpdateState.ReadyToInstall -> Icons.Default.CheckCircle
+                            is UpdateState.ReadyToInstall, is UpdateState.UpToDate -> Icons.Default.CheckCircle
                             is UpdateState.Downloading -> Icons.Default.Download
                             is UpdateState.Error -> Icons.Default.ErrorOutline
                             else -> Icons.Default.RocketLaunch
                         },
                         contentDescription = null,
                         tint = when (updateState) {
-                            is UpdateState.ReadyToInstall -> SuccessGreen
+                            is UpdateState.ReadyToInstall, is UpdateState.UpToDate -> SuccessGreen
                             is UpdateState.Error -> DangerRed
                             else -> BrandCyan
                         },
@@ -133,6 +139,7 @@ fun UpdateDialog(
                         is UpdateState.Downloading -> "Downloading Update..."
                         is UpdateState.ReadyToInstall -> "Ready to Install"
                         is UpdateState.Error -> "Update Failed"
+                        is UpdateState.UpToDate -> "No Update Available"
                         else -> "New Update Available"
                     },
                     fontSize = 20.sp,
@@ -379,6 +386,61 @@ fun UpdateDialog(
                                     )
                                 }
                             }
+                        }
+                    }
+
+                    is UpdateState.UpToDate -> {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(DarkSurfaceElevated)
+                                .border(1.dp, DarkBorderSubtle, RoundedCornerShape(16.dp))
+                                .padding(18.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "FocusLock is Up to Date",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Version $currentVersionName (Build $currentVersionCode)",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = BrandCyan
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "You are already using the latest version of FocusLock. All digital wellbeing and limit protections are fully active.",
+                                    fontSize = 12.sp,
+                                    color = Neutral400,
+                                    textAlign = TextAlign.Center,
+                                    lineHeight = 16.sp
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        Button(
+                            onClick = onDismiss,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = BrandCyan)
+                        ) {
+                            Text(
+                                text = "Got it",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.Black
+                            )
                         }
                     }
 

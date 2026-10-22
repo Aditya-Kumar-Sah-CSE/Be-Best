@@ -95,7 +95,7 @@ class AppUpdateManager(
                     return@withContext null
                 }
             } else {
-                _updateState.value = UpdateState.UpToDate
+                _updateState.value = UpdateState.UpToDate(isManualCheck = force)
                 return@withContext null
             }
         } catch (e: Exception) {

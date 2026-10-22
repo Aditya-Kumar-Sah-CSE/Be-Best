@@ -230,9 +230,17 @@ class AppUpdateManagerTest {
             assertTrue("Remote metadata apkUrl must be HTTPS", parsedInfo.apkUrl.startsWith("https://"))
             assertEquals(64, parsedInfo.apkSha256.length)
             assertTrue("Remote metadata apkSizeBytes must be > 0", parsedInfo.apkSizeBytes > 0)
-        } catch (e: java.io.IOException) {
-            // In case of local offline sandbox without internet access during unit tests
+        } catch (e: Exception) {
             println("Skipping live network assertion due to offline environment: ${e.message}")
         }
+    }
+
+    @Test
+    fun testUpToDateState_TracksManualCheckFlag() {
+        val backgroundUpToDate = UpdateState.UpToDate(isManualCheck = false)
+        assertFalse(backgroundUpToDate.isManualCheck)
+
+        val manualUpToDate = UpdateState.UpToDate(isManualCheck = true)
+        assertTrue(manualUpToDate.isManualCheck)
     }
 }

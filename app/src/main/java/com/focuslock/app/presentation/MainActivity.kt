@@ -77,7 +77,11 @@ class MainActivity : ComponentActivity() {
                         },
                         onDismiss = {
                             val verCode = (updateState as? UpdateState.UpdateAvailable)?.info?.versionCode ?: 0L
-                            updateManager.dismissForSession(this@MainActivity, verCode)
+                            if (verCode > 0L) {
+                                updateManager.dismissForSession(this@MainActivity, verCode)
+                            } else {
+                                updateManager.resetState()
+                            }
                         },
                         onRetry = {
                             coroutineScope.launch {
