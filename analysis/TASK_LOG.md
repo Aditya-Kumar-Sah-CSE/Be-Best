@@ -6,6 +6,47 @@ This log tracks technical tasks, bug fixes, refactorings, and intelligence setup
 
 ## Task Log
 
+### [TASK-006] Fix Instagram Close-Without-Redirect Bug & Enforcement Display
+- **Date**: 2026-10-22
+- **Objective**: Fix critical bug where Instagram closed/got pushed away upon reaching daily limit instead of showing FocusLock's Blocking Screen ("You've reached your daily limit").
+- **Root Cause & Architectural Enhancements**:
+  1. In `FocusLockAccessibilityService.kt`, `performGlobalAction(GLOBAL_ACTION_HOME)` was called directly before `launchBlockScreen()`. WindowManager executed the asynchronous Home command simultaneously, immediately minimizing `BlockingActivity` upon start.
+  2. Removed premature `GLOBAL_ACTION_HOME` calls. `BlockingActivity` now launches directly on top of the restricted application. `GLOBAL_ACTION_HOME` is preserved strictly as a safety fallback if `startActivity` fails.
+  3. Removed conflicting `FLAG_ACTIVITY_REORDER_TO_FRONT` intent flag.
+  4. Updated `BlockingScreen` to display: "You've reached your daily limit.", "$appName: ${limitMinutes}-minute daily limit.", "Your access will reset at local midnight.", and actual tracked usage vs configured limit.
+  5. Added `checkMonitoringHealth()` to `FocusLockAccessibilityService` checking Usage Access permission and alerting the user if disabled.
+- **Files Modified**:
+  - `app/src/main/java/com/focuslock/app/service/FocusLockAccessibilityService.kt`
+  - `app/src/main/java/com/focuslock/app/presentation/BlockingActivity.kt`
+  - `app/src/test/java/com/focuslock/app/service/ExternalAppBlockingTest.kt`
+- **Verification**:
+  - `testDebugUnitTest` passed with 0 failures (`BUILD SUCCESSFUL in 1m 25s`).
+  - `assembleDebug` passed with 0 errors (`BUILD SUCCESSFUL in 35s`).
+- **Outcome**: Instagram and protected apps display the full-screen blocking screen immediately without closing to the launcher.
+
+---
+
+### [TASK-005] Persistent 30-Minute Wellness Timer with 5-Minute Screen-Off Grace Period
+- **Date**: 2026-10-22
+- **Objective**: Implement 5-minute screen-off grace period for the 30-minute wellness timer. Screen ON within 5m resumes previous session preserving exact remaining time. Screen OFF >= 5m expires session and starts fresh 30m session on next screen ON. Screen-off time does not count toward 30m usage. Safe recovery across process restarts and device reboots.
+- **Root Cause & Architectural Enhancements**:
+  1. `BreakReminderHelper` previously reset continuous usage whenever screen turned off (with only a 3s misclick buffer).
+  2. Sub-session accumulation and screen-off timestamps were not persisted across process restarts or reboots.
+  3. `BootRecoveryReceiver` wiped the continuous break session indiscriminately on device reboot.
+  4. Upgraded `BreakReminderHelper` with `WellnessClock` abstraction, monotonic session accumulation, scheduled delayed expiration, and reboot wall-clock validation.
+- **Files Modified**:
+  - `app/src/main/java/com/focuslock/app/core/util/BreakReminderHelper.kt`
+  - `app/src/main/java/com/focuslock/app/service/BootRecoveryReceiver.kt`
+  - `app/build.gradle.kts`
+  - `app/src/test/java/com/focuslock/app/core/util/BreakReminderTest.kt`
+- **Verification**:
+  - All 14 tests in `BreakReminderTest` passed cleanly (`BUILD SUCCESSFUL in 50s`).
+  - All unit tests across project passed (`testDebugUnitTest`).
+  - Full Android debug build succeeded (`assembleDebug` in 1m 5s).
+- **Outcome**: 100% deterministic 5-minute screen-off grace period, reliable reboot recovery, and exact remaining countdown preservation.
+
+---
+
 ### [TASK-004] Fix FocusLock App Limit Bypass, Re-Launch Bug & Daily Reset Logic
 - **Date**: 2026-10-22
 - **Objective**: Fix restricted app re-launch bypasses (Instagram, YouTube) through launcher taps, Recent Apps, app switching, and process recreation; ensure daily quota resets strictly at local calendar midnight (`LocalDate`).

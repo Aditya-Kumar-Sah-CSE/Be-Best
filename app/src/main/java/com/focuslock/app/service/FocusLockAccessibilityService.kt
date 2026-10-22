@@ -141,13 +141,10 @@ class FocusLockAccessibilityService : AccessibilityService() {
         }
 
         // Fast In-Memory Check: If package is already known to be blocked and no emergency bypass,
-        // immediately displace restricted app from foreground and present blocking screen.
+        // immediately present blocking screen over restricted app.
         if (isPackageBlockedFast(packageName)) {
             val cachedName = appNamesCache[packageName]
                 ?: packageName.substringAfterLast('.').replaceFirstChar { it.uppercase() }
-            try {
-                performGlobalAction(GLOBAL_ACTION_HOME)
-            } catch (e: Exception) {}
             launchBlockScreen(packageName, cachedName)
             return
         }
@@ -209,9 +206,6 @@ class FocusLockAccessibilityService : AccessibilityService() {
                             if (reEval.isBlocked) {
                                 blockedPackagesCache.add(packageName)
                                 if (currentForegroundPackage == packageName) {
-                                    try {
-                                        performGlobalAction(GLOBAL_ACTION_HOME)
-                                    } catch (e: Exception) {}
                                     launchBlockScreen(packageName, app.displayName)
                                 }
                             }
@@ -222,9 +216,6 @@ class FocusLockAccessibilityService : AccessibilityService() {
 
                 if (evaluation.isBlocked) {
                     blockedPackagesCache.add(packageName)
-                    try {
-                        performGlobalAction(GLOBAL_ACTION_HOME)
-                    } catch (e: Exception) {}
                     launchBlockScreen(packageName, app.displayName)
                     return@launch
                 }
@@ -239,9 +230,6 @@ class FocusLockAccessibilityService : AccessibilityService() {
                 val postSyncEval = FocusLockApp.instance.quotaEngine.evaluateQuota(packageName)
                 if (postSyncEval.isBlocked) {
                     blockedPackagesCache.add(packageName)
-                    try {
-                        performGlobalAction(GLOBAL_ACTION_HOME)
-                    } catch (e: Exception) {}
                     launchBlockScreen(packageName, app.displayName)
                     return@launch
                 }
@@ -278,9 +266,6 @@ class FocusLockAccessibilityService : AccessibilityService() {
                             val reCheck = FocusLockApp.instance.quotaEngine.evaluateQuota(packageName)
                             if (reCheck.isBlocked) {
                                 blockedPackagesCache.add(packageName)
-                                try {
-                                    performGlobalAction(GLOBAL_ACTION_HOME)
-                                } catch (e: Exception) {}
                                 launchBlockScreen(packageName, app.displayName)
                                 delay(500L)
                             }
@@ -317,8 +302,7 @@ class FocusLockAccessibilityService : AccessibilityService() {
             addFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK or
                 Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                Intent.FLAG_ACTIVITY_SINGLE_TOP
             )
         }
 
@@ -326,7 +310,9 @@ class FocusLockAccessibilityService : AccessibilityService() {
         try {
             startActivity(intent)
             activityStarted = true
+            android.util.Log.d("FocusLock", "BlockingActivity successfully launched for $packageName")
         } catch (e: Exception) {
+            android.util.Log.e("FocusLock", "Failed to launch BlockingActivity for $packageName: ${e.message}", e)
             activityStarted = false
         }
 
@@ -345,7 +331,50 @@ class FocusLockAccessibilityService : AccessibilityService() {
                 } catch (ex: Exception) {}
             }
             // 2. Post high-priority notification with full-screen intent
+            android.util.Log.w("FocusLock", "Fell back to Home displacement & notification for $packageName")
             showBlockingNotification(packageName, appName)
+        }
+    }
+
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        checkMonitoringHealth()
+    }
+
+    private fun checkMonitoringHealth() {
+        val permissionChecker = com.focuslock.app.core.util.AndroidPermissionChecker(applicationContext)
+        if (!permissionChecker.isUsageAccessGranted()) {
+            notifyMonitoringIssue(
+                title = "Usage Access Required",
+                message = "FocusLock requires Usage Access to track limits accurately. Tap to enable.",
+                action = android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS
+            )
+        }
+    }
+
+    private fun notifyMonitoringIssue(title: String, message: String, action: String) {
+        try {
+            val intent = Intent(action).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            val pendingIntent = android.app.PendingIntent.getActivity(
+                applicationContext,
+                action.hashCode(),
+                intent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+            val builder = androidx.core.app.NotificationCompat.Builder(applicationContext, FocusLockApp.CHANNEL_ID_PROTECTION)
+                .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                .setContentTitle(title)
+                .setContentText(message)
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+            manager?.notify(action.hashCode(), builder.build())
+        } catch (e: Exception) {
+            // Ignore
         }
     }
 

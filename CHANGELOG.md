@@ -4,6 +4,24 @@ All notable changes to the FocusLock application, its architectural systems, and
 
 ---
 
+## [v1.2.4] — 2026-10-22
+
+### Critical Fix
+- **Instagram Closes Instead of Showing Daily Limit Screen (Fixed)**:
+  - **Root Cause**: In `FocusLockAccessibilityService`, `performGlobalAction(GLOBAL_ACTION_HOME)` was called directly before `launchBlockScreen(packageName, ...)`. Android WindowManager processed the asynchronous Home command simultaneously with `BlockingActivity`, immediately minimizing `BlockingActivity` right as it was started and returning the user to the Home launcher.
+  - **Fix**: Removed all premature `GLOBAL_ACTION_HOME` calls before `launchBlockScreen`. `BlockingActivity` is now launched directly on top of the restricted foreground application with `FLAG_ACTIVITY_NEW_TASK or FLAG_ACTIVITY_CLEAR_TOP or FLAG_ACTIVITY_SINGLE_TOP`.
+  - **Fallback Safety**: `performGlobalAction(GLOBAL_ACTION_HOME)` and high-priority full-screen notifications are now preserved strictly as a safety fallback if `startActivity` fails or encounters Android Background Activity Launch (BAL) restrictions.
+  - **Intent Flags**: Removed conflicting `FLAG_ACTIVITY_REORDER_TO_FRONT`.
+  - **Blocking UI**: Updated `BlockingScreen` to display:
+    - `"You've reached your daily limit."`
+    - `"$appName: ${limitMinutes}-minute daily limit."`
+    - `"Your access will reset at local midnight."`
+    - Authoritative tracked usage vs configured limit (e.g. `"Tracked usage: 3h 0m of 30m"`).
+  - **Monitoring Health Checks**: Added `checkMonitoringHealth()` to `FocusLockAccessibilityService` checking Usage Access permission on service connection and alerting the user via notifications if permissions are disabled.
+  - **Test Suite**: Added targeted tests in `ExternalAppBlockingTest` for external intent re-entry, permission revocation, and 3-hour boundary condition enforcement (total 21 comprehensive tests passing).
+
+---
+
 ## [v1.2.3] — 2026-10-22
 
 ### Fixed & Enhanced
@@ -21,8 +39,20 @@ All notable changes to the FocusLock application, its architectural systems, and
   - Automatically resets quotas, seeds fresh day records (`usedSeconds = 0`), and clears exhausted state at 12:00 AM.
   - Fixed `TimeChangeReceiver` to re-seed cache instead of clearing it, preventing timezone/time tamper bypasses.
   - Updated `BlockingActivity` to display restored status and an "Open App" button after midnight.
+- **Persistent 30-Minute Wellness Timer with 5-Minute Screen-Off Grace Period**:
+  - Upgraded `BreakReminderHelper` with `WellnessClock` abstraction and exact monotonic elapsed tracking.
+  - Screen OFF starts a 5-minute grace period with persisted screen-off timestamps and scheduled expiration task.
+  - Screen ON within 5 minutes resumes the previous session, preserving the exact accumulated screen-on duration and remaining countdown.
+  - Screen OFF for 5 minutes or longer expires the session and starts a fresh 30-minute session.
+  - Screen-off duration does NOT count toward the 30-minute usage threshold.
+  - Process recreation and service restarts during the grace period restore session state safely from persisted storage.
+  - Device reboots validate wall-clock timestamps: if reboot completes within 5 minutes of screen-off, the grace period is restored safely; otherwise session resets.
+  - App switching continues continuous session seamlessly without resetting.
+  - Floating top timer pill remains synchronized with the single source of truth (`◷ MM:SS / 30:00`).
+  - Added 14 comprehensive deterministic unit tests in `BreakReminderTest`.
 - **Test Suite**:
   - Added 18 comprehensive tests in `ExternalAppBlockingTest` validating all bypass and rollover scenarios.
+  - Added 14 deterministic tests in `BreakReminderTest` with clock injection covering all 12 grace period and boundary conditions.
 
 ---
 

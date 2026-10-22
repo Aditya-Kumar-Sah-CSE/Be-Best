@@ -16,7 +16,7 @@ class BootRecoveryReceiver : BroadcastReceiver() {
         ) {
             val app = FocusLockApp.instance
             context?.let { ctx ->
-                com.focuslock.app.core.util.BreakReminderHelper.resetSession(ctx)
+                com.focuslock.app.core.util.BreakReminderHelper.onDeviceReboot(ctx)
                 if (com.focuslock.app.core.overlay.FloatingTimerManager.isFloatingTimerEnabled(ctx) &&
                     com.focuslock.app.core.overlay.FloatingTimerManager.hasOverlayPermission(ctx)
                 ) {

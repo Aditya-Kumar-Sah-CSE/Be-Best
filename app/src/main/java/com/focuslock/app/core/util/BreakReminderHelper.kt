@@ -18,11 +18,22 @@ import com.focuslock.app.presentation.breakalert.BreakAlertActivity
 /**
  * Single Source of Truth for:
  * 1. Monotonic Continuous Screen-On Timer (30 minutes)
- * 2. 5-Minute Active Break Countdown
- * 3. 5-Minute Snooze Logic
- * 4. Automatic Screen ON/OFF Session Reset
- * 5. Notification & Alarm Dispatcher
+ * 2. 5-Minute Screen-Off Grace Period (Preserves remaining time if screen back ON < 5m)
+ * 3. 5-Minute Active Break Countdown
+ * 4. 5-Minute Snooze Logic
+ * 5. Device Reboot & Process Recovery Validation
+ * 6. Notification & Alarm Dispatcher
  */
+interface WellnessClock {
+    fun elapsedRealtime(): Long
+    fun currentTimeMillis(): Long
+}
+
+object SystemWellnessClock : WellnessClock {
+    override fun elapsedRealtime(): Long = SystemClock.elapsedRealtime()
+    override fun currentTimeMillis(): Long = System.currentTimeMillis()
+}
+
 object BreakReminderHelper {
 
     const val CHANNEL_ID = "focuslock_break_reminders"
@@ -34,6 +45,10 @@ object BreakReminderHelper {
     const val KEY_CONTINUOUS_BREAK_ALERT = "continuous_break_alert"
     const val KEY_SESSION_START_ELAPSED = "continuous_screen_session_start_elapsed"
     const val KEY_SCREEN_OFF_ELAPSED = "continuous_screen_off_elapsed"
+    const val KEY_SCREEN_OFF_WALL_TIME = "continuous_screen_off_wall_time"
+    const val KEY_ACCUMULATED_SCREEN_ON_MS = "continuous_accumulated_screen_on_ms"
+    const val KEY_BOOT_SESSION_ID = "continuous_boot_session_id"
+    const val KEY_IS_SCREEN_ON = "continuous_is_screen_on"
     const val KEY_LAST_REMINDER_ELAPSED = "continuous_last_reminder_elapsed"
     const val KEY_SNOOZE_UNTIL_ELAPSED = "continuous_snooze_until_elapsed"
     const val KEY_ALERT_TRIGGERED_FOR_SESSION = "continuous_alert_triggered_for_session"
@@ -41,9 +56,79 @@ object BreakReminderHelper {
     const val KEY_BREAK_START_ELAPSED = "continuous_break_start_elapsed"
 
     const val THIRTY_MINUTES_MILLIS = 30 * 60 * 1000L // 30 minutes
-    const val FIVE_MINUTES_MILLIS = 5 * 60 * 1000L   // 5 minutes
+    const val FIVE_MINUTES_MILLIS = 5 * 60 * 1000L   // 5 minutes (Grace period, break duration, snooze)
 
-    fun createNotificationChannel(context: Context) {
+    @Volatile
+    var clock: WellnessClock = SystemWellnessClock
+
+    @androidx.annotation.VisibleForTesting
+    var preferencesOverride: SharedPreferences? = null
+
+    @androidx.annotation.VisibleForTesting
+    var isBreakAlertEnabledOverride: Boolean? = null
+
+    @androidx.annotation.VisibleForTesting
+    var soundManagerOverride: WellnessSoundManager? = null
+
+    @androidx.annotation.VisibleForTesting
+    var onAlarmTriggered: (() -> Unit)? = null
+
+    private var pendingResetRunnable: Runnable? = null
+    private var resetHandler: android.os.Handler? = null
+
+    private fun getHandler(): android.os.Handler? {
+        if (resetHandler == null) {
+            try {
+                val looper = android.os.Looper.getMainLooper()
+                if (looper != null) {
+                    resetHandler = android.os.Handler(looper)
+                }
+            } catch (e: Throwable) {}
+        }
+        return resetHandler
+    }
+
+    private fun schedulePendingResetTask(context: Context? = null) {
+        cancelPendingResetTask()
+        val runnable = Runnable {
+            expireSessionIfGracePeriodOver(context)
+        }
+        pendingResetRunnable = runnable
+        try {
+            getHandler()?.postDelayed(runnable, FIVE_MINUTES_MILLIS)
+        } catch (e: Throwable) {}
+    }
+
+    fun cancelPendingResetTask() {
+        pendingResetRunnable?.let {
+            try {
+                getHandler()?.removeCallbacks(it)
+            } catch (e: Throwable) {}
+            pendingResetRunnable = null
+        }
+    }
+
+    fun hasPendingResetTask(): Boolean {
+        return pendingResetRunnable != null
+    }
+
+    fun getBootSessionId(): Long {
+        return clock.currentTimeMillis() - clock.elapsedRealtime()
+    }
+
+    fun isSameBootSession(
+        nowElapsed: Long,
+        screenOffElapsed: Long,
+        storedBootId: Long,
+        currentBootId: Long
+    ): Boolean {
+        if (nowElapsed < screenOffElapsed) return false
+        if (storedBootId == 0L || currentBootId == 0L) return true
+        return kotlin.math.abs(currentBootId - storedBootId) < 15_000L
+    }
+
+    fun createNotificationChannel(context: Context? = null) {
+        if (context == null) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
                 ?: return
@@ -60,110 +145,287 @@ object BreakReminderHelper {
         }
     }
 
-    private fun getPrefs(context: Context): SharedPreferences {
-        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private fun getPrefs(context: Context?): SharedPreferences {
+        preferencesOverride?.let { return it }
+        return context?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            ?: error("Context or preferencesOverride required")
     }
 
-    fun isBreakAlertEnabled(context: Context): Boolean {
-        return WellnessPreferences.getInstance(context).isBreakAlertEnabled
+    fun isBreakAlertEnabled(context: Context? = null): Boolean {
+        isBreakAlertEnabledOverride?.let { return it }
+        val ctx = context ?: return true
+        return WellnessPreferences.getInstance(ctx).isBreakAlertEnabled
     }
 
     /**
      * Called when device screen turns ON.
-     * Starts fresh 30-minute session or recovers gracefully.
+     * 1. Cancels any pending grace period expiration task.
+     * 2. If screen was already ON and active, no-op (idempotent across multiple receivers).
+     * 3. If previous session exists and screen was OFF for < 5 minutes, resumes session with preserved remaining time.
+     * 4. If screen was OFF for >= 5 minutes or no session exists, starts fresh 30-minute session.
      */
-    fun onScreenOn(context: Context) {
+    fun onScreenOn(context: Context? = null) {
+        cancelPendingResetTask()
         val prefs = getPrefs(context)
-        val nowElapsed = SystemClock.elapsedRealtime()
+        val nowElapsed = clock.elapsedRealtime()
+        val nowWall = clock.currentTimeMillis()
+        val isScreenOn = prefs.getBoolean(KEY_IS_SCREEN_ON, false)
+        val currentBootId = getBootSessionId()
+
+        // If screen is ALREADY registered as ON and session is active, avoid resetting
+        if (isScreenOn) {
+            val sessionStart = prefs.getLong(KEY_SESSION_START_ELAPSED, 0L)
+            if (sessionStart > 0L) {
+                context?.let { ctx ->
+                    try {
+                        com.focuslock.app.core.overlay.FloatingTimerManager.onScreenOn(ctx)
+                    } catch (e: Throwable) {}
+                }
+                return
+            }
+        }
+
         val screenOffElapsed = prefs.getLong(KEY_SCREEN_OFF_ELAPSED, 0L)
-        val sessionStart = prefs.getLong(KEY_SESSION_START_ELAPSED, 0L)
+        val screenOffWall = prefs.getLong(KEY_SCREEN_OFF_WALL_TIME, 0L)
+        val accumulated = prefs.getLong(KEY_ACCUMULATED_SCREEN_ON_MS, 0L)
+        val storedBootId = prefs.getLong(KEY_BOOT_SESSION_ID, 0L)
 
-        // Reset continuous-use session when screen turns off.
-        // When turning on again, start a fresh 30-minute session.
-        // (Grace period of 3 seconds only to absorb momentary pocket power-button misclicks)
-        val wasGlitch = screenOffElapsed > 0L && (nowElapsed - screenOffElapsed) < 3_000L
+        val isSameBoot = isSameBootSession(nowElapsed, screenOffElapsed, storedBootId, currentBootId)
 
-        if (sessionStart == 0L || !wasGlitch) {
+        val shouldResume: Boolean = if (screenOffElapsed > 0L && accumulated > 0L) {
+            if (isSameBoot) {
+                val elapsedOff = nowElapsed - screenOffElapsed
+                elapsedOff in 0L until FIVE_MINUTES_MILLIS
+            } else {
+                // Across device reboot: Monotonic timestamps not comparable; check wall clock
+                val wallOff = nowWall - screenOffWall
+                wallOff in 0L until FIVE_MINUTES_MILLIS
+            }
+        } else {
+            false
+        }
+
+        if (shouldResume) {
+            // Resume previous session: preserve accumulatedScreenOnMs
             prefs.edit()
                 .putLong(KEY_SESSION_START_ELAPSED, nowElapsed)
+                .putBoolean(KEY_IS_SCREEN_ON, true)
                 .remove(KEY_SCREEN_OFF_ELAPSED)
+                .remove(KEY_SCREEN_OFF_WALL_TIME)
+                .putLong(KEY_BOOT_SESSION_ID, currentBootId)
+                .apply()
+        } else {
+            // Start fresh 30-minute session
+            prefs.edit()
+                .putLong(KEY_ACCUMULATED_SCREEN_ON_MS, 0L)
+                .putLong(KEY_SESSION_START_ELAPSED, nowElapsed)
+                .putBoolean(KEY_IS_SCREEN_ON, true)
+                .remove(KEY_SCREEN_OFF_ELAPSED)
+                .remove(KEY_SCREEN_OFF_WALL_TIME)
+                .remove(KEY_SNOOZE_UNTIL_ELAPSED)
+                .remove(KEY_BREAK_ACTIVE)
+                .remove(KEY_BREAK_START_ELAPSED)
+                .putBoolean(KEY_ALERT_TRIGGERED_FOR_SESSION, false)
+                .putLong(KEY_BOOT_SESSION_ID, currentBootId)
+                .apply()
+        }
+
+        context?.let { ctx ->
+            try {
+                com.focuslock.app.core.overlay.FloatingTimerManager.onScreenOn(ctx)
+            } catch (e: Throwable) {}
+        }
+    }
+
+    /**
+     * Called when device screen turns OFF.
+     * 1. Saves accumulated screen-on time so far.
+     * 2. Records screen-off timestamps (monotonic and wall-clock).
+     * 3. Starts 5-minute grace period and schedules delayed session expiration.
+     * 4. Stops any playing alarm sound.
+     */
+    fun onScreenOff(context: Context? = null) {
+        val prefs = getPrefs(context)
+        val nowElapsed = clock.elapsedRealtime()
+        val nowWall = clock.currentTimeMillis()
+        val isScreenOn = prefs.getBoolean(KEY_IS_SCREEN_ON, false)
+        val currentBootId = getBootSessionId()
+
+        // If screen was ON, accumulate active elapsed duration
+        val sessionStart = prefs.getLong(KEY_SESSION_START_ELAPSED, 0L)
+        val currentAccumulated = prefs.getLong(KEY_ACCUMULATED_SCREEN_ON_MS, 0L)
+
+        val addedMs = if (isScreenOn && sessionStart > 0L) {
+            (nowElapsed - sessionStart).coerceAtLeast(0L)
+        } else {
+            0L
+        }
+        val newAccumulated = currentAccumulated + addedMs
+
+        prefs.edit()
+            .putLong(KEY_ACCUMULATED_SCREEN_ON_MS, newAccumulated)
+            .putLong(KEY_SESSION_START_ELAPSED, 0L)
+            .putLong(KEY_SCREEN_OFF_ELAPSED, nowElapsed)
+            .putLong(KEY_SCREEN_OFF_WALL_TIME, nowWall)
+            .putBoolean(KEY_IS_SCREEN_ON, false)
+            .putLong(KEY_BOOT_SESSION_ID, currentBootId)
+            .remove(KEY_BREAK_ACTIVE)
+            .remove(KEY_BREAK_START_ELAPSED)
+            .apply()
+
+        // Start 5-minute grace period reset task
+        schedulePendingResetTask(context)
+
+        // Stop active alarm/speech
+        context?.let { ctx ->
+            try {
+                WellnessSoundManager.getInstance(ctx).stop()
+            } catch (e: Throwable) {}
+
+            try {
+                com.focuslock.app.core.overlay.FloatingTimerManager.onScreenOff(ctx)
+            } catch (e: Throwable) {}
+        }
+    }
+
+    /**
+     * Expire session if screen remained OFF for 5 minutes or longer.
+     */
+    fun expireSessionIfGracePeriodOver(context: Context? = null) {
+        val prefs = getPrefs(context)
+        val isScreenOn = prefs.getBoolean(KEY_IS_SCREEN_ON, false)
+        if (isScreenOn) return
+
+        val screenOffElapsed = prefs.getLong(KEY_SCREEN_OFF_ELAPSED, 0L)
+        val nowElapsed = clock.elapsedRealtime()
+
+        if (screenOffElapsed > 0L && (nowElapsed - screenOffElapsed) >= FIVE_MINUTES_MILLIS) {
+            prefs.edit()
+                .putLong(KEY_ACCUMULATED_SCREEN_ON_MS, 0L)
+                .putLong(KEY_SESSION_START_ELAPSED, 0L)
+                .remove(KEY_SCREEN_OFF_ELAPSED)
+                .remove(KEY_SCREEN_OFF_WALL_TIME)
                 .remove(KEY_SNOOZE_UNTIL_ELAPSED)
                 .remove(KEY_BREAK_ACTIVE)
                 .remove(KEY_BREAK_START_ELAPSED)
                 .putBoolean(KEY_ALERT_TRIGGERED_FOR_SESSION, false)
                 .apply()
-        } else {
-            prefs.edit().remove(KEY_SCREEN_OFF_ELAPSED).apply()
+
+            context?.let { ctx ->
+                try {
+                    com.focuslock.app.core.overlay.FloatingTimerManager.refresh(ctx)
+                } catch (e: Throwable) {}
+            }
         }
-        com.focuslock.app.core.overlay.FloatingTimerManager.onScreenOn(context)
     }
 
     /**
-     * Called when device screen turns OFF.
-     * Stops active alarm/chime and resets continuous usage session.
+     * Handles device reboot. Validates whether reboot occurred during a valid grace period.
+     * If wall-clock elapsed time < 5 minutes, restores grace period state; otherwise resets session.
      */
-    fun onScreenOff(context: Context) {
-        val nowElapsed = SystemClock.elapsedRealtime()
-        getPrefs(context).edit()
-            .putLong(KEY_SCREEN_OFF_ELAPSED, nowElapsed)
-            .remove(KEY_BREAK_ACTIVE)
-            .remove(KEY_BREAK_START_ELAPSED)
-            .apply()
+    fun onDeviceReboot(context: Context? = null) {
+        cancelPendingResetTask()
+        val prefs = getPrefs(context)
+        val isScreenOn = prefs.getBoolean(KEY_IS_SCREEN_ON, false)
+        val screenOffWall = prefs.getLong(KEY_SCREEN_OFF_WALL_TIME, 0L)
+        val accumulated = prefs.getLong(KEY_ACCUMULATED_SCREEN_ON_MS, 0L)
+        val nowWall = clock.currentTimeMillis()
 
-        // Stop any playing alarm/speech
-        WellnessSoundManager.getInstance(context).stop()
-        com.focuslock.app.core.overlay.FloatingTimerManager.onScreenOff(context)
+        if (!isScreenOn && screenOffWall > 0L && accumulated > 0L) {
+            val wallDiff = nowWall - screenOffWall
+            if (wallDiff in 0L until FIVE_MINUTES_MILLIS) {
+                // Restore state safely across reboot! Grace period remains active.
+                val currentBootId = getBootSessionId()
+                prefs.edit()
+                    .putLong(KEY_BOOT_SESSION_ID, currentBootId)
+                    .putLong(KEY_SCREEN_OFF_ELAPSED, clock.elapsedRealtime())
+                    .apply()
+                schedulePendingResetTask(context)
+                return
+            }
+        }
+
+        // Grace period expired or invalid: reset cleanly
+        resetSession(context)
     }
 
     /**
      * Resets the 30-minute continuous session to 0.
      */
-    fun resetSession(context: Context) {
-        val nowElapsed = SystemClock.elapsedRealtime()
+    fun resetSession(context: Context? = null) {
+        cancelPendingResetTask()
+        val nowElapsed = clock.elapsedRealtime()
+        val currentBootId = getBootSessionId()
+
         getPrefs(context).edit()
+            .putLong(KEY_ACCUMULATED_SCREEN_ON_MS, 0L)
             .putLong(KEY_SESSION_START_ELAPSED, nowElapsed)
+            .putBoolean(KEY_IS_SCREEN_ON, true)
             .remove(KEY_SCREEN_OFF_ELAPSED)
+            .remove(KEY_SCREEN_OFF_WALL_TIME)
             .remove(KEY_SNOOZE_UNTIL_ELAPSED)
             .remove(KEY_BREAK_ACTIVE)
             .remove(KEY_BREAK_START_ELAPSED)
             .putBoolean(KEY_ALERT_TRIGGERED_FOR_SESSION, false)
+            .putLong(KEY_BOOT_SESSION_ID, currentBootId)
             .apply()
 
-        WellnessSoundManager.getInstance(context).stop()
-        dismissReminderNotification(context)
-        com.focuslock.app.core.overlay.FloatingTimerManager.refresh(context)
+        context?.let { ctx ->
+            try {
+                WellnessSoundManager.getInstance(ctx).stop()
+            } catch (e: Throwable) {}
+
+            try {
+                dismissReminderNotification(ctx)
+            } catch (e: Throwable) {}
+
+            try {
+                com.focuslock.app.core.overlay.FloatingTimerManager.refresh(ctx)
+            } catch (e: Throwable) {}
+        }
     }
 
     /**
      * Starts a 5-minute wellness break.
      * Stops the alarm sound and records active break state.
      */
-    fun startBreak(context: Context) {
-        val nowElapsed = SystemClock.elapsedRealtime()
+    fun startBreak(context: Context? = null) {
+        cancelPendingResetTask()
+        val nowElapsed = clock.elapsedRealtime()
         getPrefs(context).edit()
             .putBoolean(KEY_BREAK_ACTIVE, true)
             .putLong(KEY_BREAK_START_ELAPSED, nowElapsed)
             .remove(KEY_SNOOZE_UNTIL_ELAPSED)
             .apply()
 
-        WellnessSoundManager.getInstance(context).stop()
-        dismissReminderNotification(context)
-        com.focuslock.app.core.overlay.FloatingTimerManager.refresh(context)
+        context?.let { ctx ->
+            try {
+                WellnessSoundManager.getInstance(ctx).stop()
+            } catch (e: Throwable) {}
+
+            try {
+                dismissReminderNotification(ctx)
+            } catch (e: Throwable) {}
+
+            try {
+                com.focuslock.app.core.overlay.FloatingTimerManager.refresh(ctx)
+            } catch (e: Throwable) {}
+        }
     }
 
-    fun isBreakActive(context: Context): Boolean {
+    fun isBreakActive(context: Context? = null): Boolean {
         val prefs = getPrefs(context)
         if (!prefs.getBoolean(KEY_BREAK_ACTIVE, false)) return false
         val start = prefs.getLong(KEY_BREAK_START_ELAPSED, 0L)
-        val now = SystemClock.elapsedRealtime()
-        return (now - start) < FIVE_MINUTES_MILLIS
+        val now = clock.elapsedRealtime()
+        return (now - start) in 0L until FIVE_MINUTES_MILLIS
     }
 
-    fun getRemainingBreakSeconds(context: Context): Long {
+    fun getRemainingBreakSeconds(context: Context? = null): Long {
         val prefs = getPrefs(context)
         if (!prefs.getBoolean(KEY_BREAK_ACTIVE, false)) return 0L
         val start = prefs.getLong(KEY_BREAK_START_ELAPSED, 0L)
-        val now = SystemClock.elapsedRealtime()
+        val now = clock.elapsedRealtime()
         val elapsed = (now - start) / 1000L
         return (300L - elapsed).coerceAtLeast(0L)
     }
@@ -172,8 +434,8 @@ object BreakReminderHelper {
      * Action 2: Snoozes reminder for 5 minutes.
      * Stops sound, avoids re-alerting during snooze, re-alerts after 5m if screen still on.
      */
-    fun snooze(context: Context, minutes: Long = 5L) {
-        val nowElapsed = SystemClock.elapsedRealtime()
+    fun snooze(context: Context? = null, minutes: Long = 5L) {
+        val nowElapsed = clock.elapsedRealtime()
         val snoozeUntil = nowElapsed + (minutes * 60 * 1000L)
         getPrefs(context).edit()
             .putLong(KEY_SNOOZE_UNTIL_ELAPSED, snoozeUntil)
@@ -182,16 +444,23 @@ object BreakReminderHelper {
             .putBoolean(KEY_ALERT_TRIGGERED_FOR_SESSION, false) // Allow re-alert once snooze expires
             .apply()
 
-        WellnessSoundManager.getInstance(context).stop()
-        dismissReminderNotification(context)
+        context?.let { ctx ->
+            try {
+                WellnessSoundManager.getInstance(ctx).stop()
+            } catch (e: Throwable) {}
+
+            try {
+                dismissReminderNotification(ctx)
+            } catch (e: Throwable) {}
+        }
     }
 
     /**
      * Action 3: Dismisses the reminder.
      * Stops sound, keeps timer running, but avoids repeated alerts for 15 minutes.
      */
-    fun dismiss(context: Context) {
-        val nowElapsed = SystemClock.elapsedRealtime()
+    fun dismiss(context: Context? = null) {
+        val nowElapsed = clock.elapsedRealtime()
         getPrefs(context).edit()
             .putLong(KEY_LAST_REMINDER_ELAPSED, nowElapsed)
             .putBoolean(KEY_ALERT_TRIGGERED_FOR_SESSION, true)
@@ -199,38 +468,53 @@ object BreakReminderHelper {
             .remove(KEY_BREAK_START_ELAPSED)
             .apply()
 
-        WellnessSoundManager.getInstance(context).stop()
-        dismissReminderNotification(context)
+        context?.let { ctx ->
+            try {
+                WellnessSoundManager.getInstance(ctx).stop()
+            } catch (e: Throwable) {}
+
+            try {
+                dismissReminderNotification(ctx)
+            } catch (e: Throwable) {}
+        }
     }
 
     /**
      * Returns continuous screen-on usage in milliseconds for the current session.
      * Switching apps does NOT reset this value.
+     * Screen-off time during grace period does NOT add to continuous screen-on usage.
      */
-    fun getContinuousScreenUsageMillis(context: Context): Long {
-        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
-        if (powerManager != null && !powerManager.isInteractive) {
-            return 0L
-        }
+    fun getContinuousScreenUsageMillis(context: Context? = null): Long {
         val prefs = getPrefs(context)
+        val nowElapsed = clock.elapsedRealtime()
+        val isScreenOn = prefs.getBoolean(KEY_IS_SCREEN_ON, false)
+        val accumulated = prefs.getLong(KEY_ACCUMULATED_SCREEN_ON_MS, 0L)
         val sessionStart = prefs.getLong(KEY_SESSION_START_ELAPSED, 0L)
-        val nowElapsed = SystemClock.elapsedRealtime()
-        if (sessionStart <= 0L) {
-            prefs.edit().putLong(KEY_SESSION_START_ELAPSED, nowElapsed).apply()
+        val screenOffElapsed = prefs.getLong(KEY_SCREEN_OFF_ELAPSED, 0L)
+
+        if (isScreenOn) {
+            val currentSegment = if (sessionStart > 0L) {
+                (nowElapsed - sessionStart).coerceAtLeast(0L)
+            } else {
+                0L
+            }
+            return (accumulated + currentSegment).coerceAtLeast(0L)
+        } else {
+            // Screen is OFF: check if within grace period
+            if (screenOffElapsed > 0L) {
+                val elapsedOff = nowElapsed - screenOffElapsed
+                if (elapsedOff in 0L until FIVE_MINUTES_MILLIS) {
+                    return accumulated.coerceAtLeast(0L)
+                }
+            }
             return 0L
         }
-        if (nowElapsed < sessionStart) {
-            // Device clock reset
-            prefs.edit().putLong(KEY_SESSION_START_ELAPSED, nowElapsed).apply()
-            return 0L
-        }
-        return (nowElapsed - sessionStart).coerceAtLeast(0L)
     }
 
     /**
      * Returns remaining seconds until the 30-minute wellness reminder.
      */
-    fun getRemainingSecondsToThirtyMinutes(context: Context): Long {
+    fun getRemainingSecondsToThirtyMinutes(context: Context? = null): Long {
         val usageMillis = getContinuousScreenUsageMillis(context)
         val usageSecs = usageMillis / 1000L
         return (1800L - usageSecs).coerceAtLeast(0L)
@@ -239,11 +523,11 @@ object BreakReminderHelper {
     /**
      * Evaluates whether 30 continuous minutes have elapsed and triggers the alarm.
      */
-    fun checkAndTriggerReminder(context: Context): Boolean {
+    fun checkAndTriggerReminder(context: Context? = null): Boolean {
         if (!isBreakAlertEnabled(context)) return false
 
         val prefs = getPrefs(context)
-        val nowElapsed = SystemClock.elapsedRealtime()
+        val nowElapsed = clock.elapsedRealtime()
 
         // 1. If currently in active 5-min break, do not alert
         if (isBreakActive(context)) {
@@ -261,14 +545,8 @@ object BreakReminderHelper {
             }
         }
 
-        val sessionStart = prefs.getLong(KEY_SESSION_START_ELAPSED, 0L)
-        if (sessionStart <= 0L) {
-            prefs.edit().putLong(KEY_SESSION_START_ELAPSED, nowElapsed).apply()
-            return false
-        }
-
-        val continuousElapsed = nowElapsed - sessionStart
-        if (continuousElapsed < THIRTY_MINUTES_MILLIS) {
+        val totalScreenUsage = getContinuousScreenUsageMillis(context)
+        if (totalScreenUsage < THIRTY_MINUTES_MILLIS) {
             return false
         }
 
@@ -287,22 +565,42 @@ object BreakReminderHelper {
             .putBoolean(KEY_ALERT_TRIGGERED_FOR_SESSION, true)
             .apply()
 
+        onAlarmTriggered?.invoke()
+
         // 4. Start pleasant sound / custom audio + TTS + gentle vibration
-        WellnessSoundManager.getInstance(context).startWellnessAlarm()
+        context?.let { ctx ->
+            try {
+                if (soundManagerOverride != null) {
+                    soundManagerOverride?.startWellnessAlarm()
+                } else {
+                    WellnessSoundManager.getInstance(ctx).startWellnessAlarm()
+                }
+            } catch (e: Throwable) {}
 
-        // 5. Post High-Priority Notification with Fullscreen intent fallback
-        showBreakReminderNotification(context)
+            // 5. Post High-Priority Notification with Fullscreen intent fallback
+            try {
+                showBreakReminderNotification(ctx)
+            } catch (e: Throwable) {}
 
-        // 6. Launch BreakAlertActivity UI immediately over current screen
-        try {
-            if (!BreakAlertActivity.isBreakAlertVisible) {
-                BreakAlertActivity.launch(context)
-            }
-        } catch (e: Exception) {
-            // Android background activity restrictions handled by notification
+            // 6. Launch BreakAlertActivity UI immediately over current screen
+            try {
+                if (!BreakAlertActivity.isBreakAlertVisible) {
+                    BreakAlertActivity.launch(ctx)
+                }
+            } catch (e: Throwable) {}
         }
 
         return true
+    }
+
+    @androidx.annotation.VisibleForTesting
+    fun resetTestOverrides() {
+        preferencesOverride = null
+        clock = SystemWellnessClock
+        isBreakAlertEnabledOverride = null
+        soundManagerOverride = null
+        onAlarmTriggered = null
+        cancelPendingResetTask()
     }
 
     fun showBreakReminderNotification(context: Context) {

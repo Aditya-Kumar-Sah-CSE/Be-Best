@@ -533,4 +533,56 @@ class ExternalAppBlockingTest {
         val formatted = TimeUtils.formatCountdown(3665L)
         assertEquals("01:01:05", formatted)
     }
+
+    @Test
+    fun testInstagramOpenedThroughExternalIntent_RemainsBlocked() = runBlocking {
+        // App exhausted via normal usage
+        quotaEngine.recordUsage(instagramPkg, 1800L)
+        assertTrue(quotaEngine.evaluateQuota(instagramPkg).isBlocked)
+
+        // Incoming external intent opens Instagram (e.g. deep link or share target)
+        fakeTimeProvider.advanceSeconds(30)
+        val deepLinkEval = quotaEngine.evaluateQuota(instagramPkg)
+        assertTrue("Opening via external intent must still be strictly blocked", deepLinkEval.isBlocked)
+        assertEquals(EnforcementState.LIMIT_REACHED, deepLinkEval.enforcementState)
+        assertEquals(0L, deepLinkEval.remainingSeconds)
+    }
+
+    @Test
+    fun testUsageAccessPermissionRevoked_PreservesRecordedUsageWithoutReset() = runBlocking {
+        quotaEngine.recordUsage(instagramPkg, 1800L)
+        assertTrue(quotaEngine.evaluateQuota(instagramPkg).isBlocked)
+
+        // User revokes Usage Access permission in system settings
+        permissionChecker.active = false
+
+        val eval = quotaEngine.evaluateQuota(instagramPkg)
+        assertFalse("Permissions active must report false", eval.permissionsActive)
+        assertTrue("Previously recorded usage must NEVER be erased or reset when permissions are revoked", eval.isBlocked)
+        assertEquals(1800L, eval.usedSeconds)
+    }
+
+    @Test
+    fun testThreeHourOveruse_BoundaryCondition_StrictlyEnforced() = runBlocking {
+        // Specifically reproduce the issue reported by user:
+        // Configured limit: 30 minutes (1800s). Observed usage: ~3 hours (10,800s).
+        quotaEngine.recordUsage(instagramPkg, 10800L)
+
+        val eval = quotaEngine.evaluateQuota(instagramPkg)
+        assertTrue("Instagram used for 3 hours against 30m limit must be blocked", eval.isBlocked)
+        assertEquals(ProtectionState.EXHAUSTED, eval.status)
+        assertEquals(EnforcementState.LIMIT_REACHED, eval.enforcementState)
+        assertEquals(0L, eval.remainingSeconds)
+        assertEquals(10800L, eval.usedSeconds)
+        assertEquals(1800L, eval.dailyLimitSeconds)
+
+        // Repeated attempts to re-open across time
+        for (i in 1..5) {
+            fakeTimeProvider.advanceSeconds(60)
+            val reEval = quotaEngine.evaluateQuota(instagramPkg)
+            assertTrue("Repeated re-launch #$i must remain strictly blocked", reEval.isBlocked)
+            assertEquals(10800L, reEval.usedSeconds)
+        }
+    }
 }
+

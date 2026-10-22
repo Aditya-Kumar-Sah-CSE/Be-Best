@@ -269,10 +269,10 @@ fun BlockingScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Title: Daily Limit Reached / Quota Reset
+                // Title: You've reached your daily limit / Daily Quota Reset
                 Text(
-                    text = if (isUnblockedAfterReset) "Daily Quota Reset!" else "Daily Limit Reached",
-                    fontSize = 24.sp,
+                    text = if (isUnblockedAfterReset) "Daily Quota Reset!" else "You've reached your daily limit.",
+                    fontSize = 22.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = if (isUnblockedAfterReset) BrandCyan else Color.White,
                     textAlign = TextAlign.Center
@@ -280,8 +280,9 @@ fun BlockingScreen(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
+                val limitMinutes = ((currentEval?.dailyLimitSeconds ?: 1800L) / 60L).coerceAtLeast(1L)
                 Text(
-                    text = appName,
+                    text = "$appName: ${limitMinutes}-minute daily limit.",
                     fontSize = 17.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = BrandCyan,
@@ -294,7 +295,7 @@ fun BlockingScreen(
                     text = if (isUnblockedAfterReset) {
                         "Your daily allowance for $appName has been restored for today. Have a productive day!"
                     } else {
-                        "You've used your $appName allowance for today. Take a break and come back tomorrow."
+                        "Your access will reset at local midnight."
                     },
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Normal,
@@ -306,9 +307,11 @@ fun BlockingScreen(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Used today real duration
+                // Tracked usage and limit display
                 val usedDurationText = currentEval?.let {
-                    "${TimeUtils.formatDurationShort(it.usedSeconds)} used today"
+                    val usedStr = TimeUtils.formatDurationShort(it.usedSeconds)
+                    val limitStr = TimeUtils.formatDurationShort(it.dailyLimitSeconds)
+                    "Tracked usage: $usedStr of $limitStr"
                 } ?: "Daily allowance exhausted."
 
                 Text(
