@@ -54,6 +54,8 @@ class FocusLockAccessibilityService : AccessibilityService() {
         refreshLauncherPackages()
         com.focuslock.app.core.util.BreakReminderHelper.onScreenOn(applicationContext)
         com.focuslock.app.core.util.BreakReminderHelper.createNotificationChannel(applicationContext)
+        com.focuslock.app.core.overlay.FloatingTimerService.start(applicationContext)
+        com.focuslock.app.core.overlay.FloatingTimerManager.show(applicationContext)
 
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_ON)
@@ -101,6 +103,9 @@ class FocusLockAccessibilityService : AccessibilityService() {
         val packageName = event.packageName?.toString()
             ?: rootInActiveWindow?.packageName?.toString()
             ?: return
+
+        // Maintain universal floating screen-time timer overlay across all apps (Instagram, YouTube, etc.)
+        com.focuslock.app.core.overlay.FloatingTimerManager.ensureVisible(applicationContext)
 
         // Exclude system UI components, launchers, and FocusLock itself
         if (isExcludedPackage(packageName)) {

@@ -28,7 +28,8 @@ import java.util.Locale
 /**
  * Manages the compact, draggable floating screen-time pill overlay.
  * Displays live continuous screen-on time (e.g. "◷ 24:38 / 30:00")
- * unobtrusively at the top of the screen across all applications.
+ * unobtrusively at the top of the screen across all applications (Instagram, YouTube,
+ * WhatsApp, Chrome, Games, Home Screen, etc.).
  */
 object FloatingTimerManager {
 
@@ -65,8 +66,10 @@ object FloatingTimerManager {
     fun setFloatingTimerEnabled(context: Context, enabled: Boolean) {
         getPrefs(context).edit().putBoolean(KEY_FLOATING_TIMER_ENABLED, enabled).apply()
         if (enabled) {
+            FloatingTimerService.start(context)
             show(context)
         } else {
+            FloatingTimerService.stop(context)
             hide()
         }
     }
@@ -114,13 +117,33 @@ object FloatingTimerManager {
 
     fun refresh(context: Context) {
         mainHandler.post {
-            if (isOverlayAttached) {
+            if (isOverlayAttached && overlayView?.isAttachedToWindow == true) {
                 updateTimerText()
             } else if (isFloatingTimerEnabled(context) && hasOverlayPermission(context)) {
                 val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
                 if (powerManager?.isInteractive != false) {
                     show(context)
                 }
+            }
+        }
+    }
+
+    fun ensureVisible(context: Context) {
+        if (!isFloatingTimerEnabled(context) || !hasOverlayPermission(context)) {
+            hide()
+            return
+        }
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        if (powerManager?.isInteractive == false) {
+            hide()
+            return
+        }
+
+        mainHandler.post {
+            if (overlayView == null || !isOverlayAttached || overlayView?.isAttachedToWindow != true) {
+                show(context)
+            } else {
+                updateTimerText()
             }
         }
     }
@@ -133,7 +156,7 @@ object FloatingTimerManager {
         val appContext = context.applicationContext
 
         mainHandler.post {
-            if (isOverlayAttached && overlayView != null) {
+            if (isOverlayAttached && overlayView != null && overlayView?.isAttachedToWindow == true) {
                 updateTimerText()
                 return@post
             }
@@ -141,6 +164,17 @@ object FloatingTimerManager {
             try {
                 windowManager = appContext.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
                     ?: return@post
+
+                // Clean up any previously detached or stale view
+                overlayView?.let { oldView ->
+                    try {
+                        windowManager?.removeViewImmediate(oldView)
+                    } catch (e: Exception) {
+                        try {
+                            windowManager?.removeView(oldView)
+                        } catch (ignored: Exception) {}
+                    }
+                }
 
                 val pillView = createPillView(appContext)
                 overlayView = pillView
@@ -193,6 +227,7 @@ object FloatingTimerManager {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
+        // FLAG_NOT_FOCUSABLE ensures touches outside the pill pass through directly to background apps
         val flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL

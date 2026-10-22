@@ -95,6 +95,24 @@ fun PermissionStatusScreen(
         hasNotifications = NotificationManagerCompat.from(context).areNotificationsEnabled()
         hasBatteryOpt = BatteryOptimizationHelper.isIgnoringBatteryOptimizations(context)
         hasOverlay = com.focuslock.app.core.overlay.FloatingTimerManager.hasOverlayPermission(context)
+
+        if (hasOverlay && com.focuslock.app.core.overlay.FloatingTimerManager.isFloatingTimerEnabled(context)) {
+            com.focuslock.app.core.overlay.FloatingTimerService.start(context)
+            com.focuslock.app.core.overlay.FloatingTimerManager.show(context)
+        }
+    }
+
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                refresh()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     LaunchedEffect(Unit) {

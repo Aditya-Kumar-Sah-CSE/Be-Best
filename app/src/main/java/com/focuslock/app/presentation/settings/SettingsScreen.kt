@@ -115,6 +115,23 @@ fun SettingsScreen(
         mutableStateOf(com.focuslock.app.core.overlay.FloatingTimerManager.hasOverlayPermission(context))
     }
 
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                hasOverlayPermission = com.focuslock.app.core.overlay.FloatingTimerManager.hasOverlayPermission(context)
+                if (hasOverlayPermission && floatingTimerEnabled) {
+                    com.focuslock.app.core.overlay.FloatingTimerService.start(context)
+                    com.focuslock.app.core.overlay.FloatingTimerManager.show(context)
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     Scaffold(
         containerColor = AppTheme.colors.background,
         bottomBar = {

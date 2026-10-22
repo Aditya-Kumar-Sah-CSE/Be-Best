@@ -15,6 +15,14 @@ class BootRecoveryReceiver : BroadcastReceiver() {
             intent?.action == "android.intent.action.QUICKBOOT_POWERON"
         ) {
             val app = FocusLockApp.instance
+            context?.let { ctx ->
+                com.focuslock.app.core.util.BreakReminderHelper.resetSession(ctx)
+                if (com.focuslock.app.core.overlay.FloatingTimerManager.isFloatingTimerEnabled(ctx) &&
+                    com.focuslock.app.core.overlay.FloatingTimerManager.hasOverlayPermission(ctx)
+                ) {
+                    com.focuslock.app.core.overlay.FloatingTimerService.start(ctx)
+                }
+            }
             CoroutineScope(Dispatchers.IO).launch {
                 app.usageRepository.logProtectionEvent(
                     eventType = "REBOOT",

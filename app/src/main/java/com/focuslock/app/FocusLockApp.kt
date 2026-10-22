@@ -65,6 +65,14 @@ class FocusLockApp : Application() {
 
         createNotificationChannels()
 
+        // Start universal floating screen timer if enabled and permission granted
+        if (com.focuslock.app.core.overlay.FloatingTimerManager.isFloatingTimerEnabled(this) &&
+            com.focuslock.app.core.overlay.FloatingTimerManager.hasOverlayPermission(this)
+        ) {
+            com.focuslock.app.core.overlay.FloatingTimerService.start(this)
+            com.focuslock.app.core.overlay.FloatingTimerManager.show(this)
+        }
+
         // Ensure default distractions (Instagram, YouTube, etc.) have 30-min limits on startup
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
             try {

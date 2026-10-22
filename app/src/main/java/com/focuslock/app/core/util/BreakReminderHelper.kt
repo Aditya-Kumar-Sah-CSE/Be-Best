@@ -103,10 +103,22 @@ object BreakReminderHelper {
     }
 
     fun getContinuousScreenUsageMillis(context: Context): Long {
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+        if (powerManager != null && !powerManager.isInteractive) {
+            return 0L
+        }
         val prefs = getPrefs(context)
         val sessionStart = prefs.getLong(KEY_SESSION_START_ELAPSED, 0L)
-        if (sessionStart <= 0L) return 0L
         val nowElapsed = SystemClock.elapsedRealtime()
+        if (sessionStart <= 0L) {
+            prefs.edit().putLong(KEY_SESSION_START_ELAPSED, nowElapsed).apply()
+            return 0L
+        }
+        if (nowElapsed < sessionStart) {
+            // Device rebooted or monotonic clock reset
+            prefs.edit().putLong(KEY_SESSION_START_ELAPSED, nowElapsed).apply()
+            return 0L
+        }
         return (nowElapsed - sessionStart).coerceAtLeast(0L)
     }
 

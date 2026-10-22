@@ -1,10 +1,10 @@
 {
   "versionCode": 3,
   "versionName": "1.2.0",
-  "releaseNotes": "• Persistent Floating Screen-Time Timer Overlay (◷ 24:38 / 30:00)\n• 30-Minute Break Alert (Walk & Drink Water with Snooze & Break Timers)\n• Dynamic Theme Switching (System, Dark Navy, Light)\n• 12:00 AM Midnight Daily Quota Renewal Cycle\n• Multi-Source UsageEvents Ground Truth & Live Lockscreen",
+  "releaseNotes": "• Universal System-Wide Floating Screen-Time Timer Overlay (◷ 24:38 / 30:00)\n• Works over all foreground apps (Instagram, YouTube, WhatsApp, Chrome, Games, Home Screen)\n• Persistent Foreground Service with Monotonic Screen-On Tracking\n• 30-Minute Break Alert (Walk & Drink Water with Snooze & Break Timers)\n• Dynamic Theme Switching & 12:00 AM Midnight Reset Cycle",
   "apkUrl": "https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/release/FocusLock-v1.2.0.apk",
-  "apkSha256": "07519b82f2d1d18aee41b64403e6558203051e0fb5c826ce8468a76fe9939b47",
-  "apkSizeBytes": 12168625,
+  "apkSha256": "4edd54794550e8db2c47d4a4416cff8a0d257fbd6d42876d8f03088ceb5c0338",
+  "apkSizeBytes": 12168865,
   "minSupportedVersionCode": 1,
   "isMandatory": false
 }

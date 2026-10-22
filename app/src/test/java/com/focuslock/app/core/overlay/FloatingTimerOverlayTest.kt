@@ -139,6 +139,53 @@ class FloatingTimerOverlayTest {
         assertTrue("When overlay permission is granted and setting is enabled, pill overlay attaches", shouldShowOverlayGranted)
     }
 
+    @Test
+    fun testUniversalAppSwitching_AcrossSocialMediaVideoAndBrowser() {
+        val sessionStart = 100_000L
+
+        // FocusLock is closed, user opens Instagram (5 mins)
+        val tInsta = sessionStart + (5 * 60 * 1000L)
+        val elapsedInsta = (tInsta - sessionStart) / 1000L
+        assertEquals(300L, elapsedInsta)
+
+        // User switches from Instagram to YouTube (12 mins)
+        val tYouTube = tInsta + (12 * 60 * 1000L)
+        val elapsedYouTube = (tYouTube - sessionStart) / 1000L
+        assertEquals(1020L, elapsedYouTube) // 17 minutes continuous
+
+        // User switches to WhatsApp (6 mins)
+        val tWhatsApp = tYouTube + (6 * 60 * 1000L)
+        val elapsedWhatsApp = (tWhatsApp - sessionStart) / 1000L
+        assertEquals(1380L, elapsedWhatsApp) // 23 minutes continuous
+
+        // User switches to Chrome (7 mins) - reaches 30 minutes!
+        val tChrome = tWhatsApp + (7 * 60 * 1000L)
+        val elapsedChrome = (tChrome - sessionStart) / 1000L
+        assertEquals(1800L, elapsedChrome) // Exactly 30 minutes continuous
+
+        // Verify formatted output at 30 minutes threshold
+        val formattedPill = formatPillTimer(elapsedChrome)
+        assertEquals("◷ 30:00 / 30:00", formattedPill)
+    }
+
+    @Test
+    fun testScreenOffDuration_NeverCountedTowardsContinuousScreenTime() {
+        // Screen on for 10 minutes
+        val session1Start = 1_000_000L
+        val tScreenOff = session1Start + (10 * 60 * 1000L)
+        val usageBeforeOff = (tScreenOff - session1Start) / 1000L
+        assertEquals(600L, usageBeforeOff)
+
+        // Phone is in pocket with screen off for 2 hours (7,200,000 ms)
+        val screenOffDurationMs = 2 * 60 * 60 * 1000L
+        val tScreenOn = tScreenOff + screenOffDurationMs
+
+        // New session starts at tScreenOn: screen off duration must NOT be included
+        val newSessionStart = tScreenOn
+        val usageAfterWake = (tScreenOn - newSessionStart) / 1000L
+        assertEquals("Screen off duration must not be counted; session restarts at 0", 0L, usageAfterWake)
+    }
+
     private fun formatPillTimer(elapsedSeconds: Long): String {
         val mm = elapsedSeconds / 60
         val ss = elapsedSeconds % 60

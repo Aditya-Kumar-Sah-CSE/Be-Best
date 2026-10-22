@@ -93,4 +93,14 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        if (com.focuslock.app.core.overlay.FloatingTimerManager.isFloatingTimerEnabled(this) &&
+            com.focuslock.app.core.overlay.FloatingTimerManager.hasOverlayPermission(this)
+        ) {
+            com.focuslock.app.core.overlay.FloatingTimerService.start(this)
+            com.focuslock.app.core.overlay.FloatingTimerManager.show(this)
+        }
+    }
 }
