@@ -29,6 +29,7 @@ class BootRecoveryReceiver : BroadcastReceiver() {
                     details = "Device reboot completed; recovering persisted quotas"
                 )
                 app.quotaEngine.checkAndPerformMidnightReset()
+                FocusLockAccessibilityService.refreshBlockedPackagesCache()
             }
         }
     }

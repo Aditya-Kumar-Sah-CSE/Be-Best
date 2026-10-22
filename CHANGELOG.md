@@ -4,6 +4,28 @@ All notable changes to the FocusLock application, its architectural systems, and
 
 ---
 
+## [v1.2.3] — 2026-10-22
+
+### Fixed & Enhanced
+- **App Re-Launch & Recent Apps Bypass Fix**:
+  - Added immediate foreground displacement via `performGlobalAction(GLOBAL_ACTION_HOME)` in `FocusLockAccessibilityService` when restricted apps are foregrounded.
+  - Prevents bypasses through Home button relaunch, Recent Apps overview, repeated launcher taps, app switching, and external links.
+  - Smart 250ms debouncer prevents duplicate `BlockingActivity` launches without ever dropping app displacement.
+- **Accurate Foreground Usage Accounting**:
+  - Eliminated fractional loss and `% 2L` truncation; exact foreground seconds are tracked monotonically and reconciled with `UsageStatsManager` via `maxOf(measuredSeconds, existing.usedSeconds)`.
+- **Enforcement State Machine**:
+  - Added `EnforcementState` (`UNDER_LIMIT`, `LIMIT_REACHED`, `TEMPORARY_BYPASS_ACTIVE`, `DAILY_RESET_PENDING`) in `QuotaEngine`.
+  - Enforced that `LIMIT_REACHED` persists across app switching, service restarts, and phone reboots.
+- **Reliable Local Midnight Rollover**:
+  - Background monitor checks local calendar date (`LocalDate`) every 5 seconds.
+  - Automatically resets quotas, seeds fresh day records (`usedSeconds = 0`), and clears exhausted state at 12:00 AM.
+  - Fixed `TimeChangeReceiver` to re-seed cache instead of clearing it, preventing timezone/time tamper bypasses.
+  - Updated `BlockingActivity` to display restored status and an "Open App" button after midnight.
+- **Test Suite**:
+  - Added 18 comprehensive tests in `ExternalAppBlockingTest` validating all bypass and rollover scenarios.
+
+---
+
 ## [v1.2.2] — 2026-10-22
 
 ### Added

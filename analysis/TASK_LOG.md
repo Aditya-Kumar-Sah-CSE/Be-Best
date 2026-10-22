@@ -6,6 +6,27 @@ This log tracks technical tasks, bug fixes, refactorings, and intelligence setup
 
 ## Task Log
 
+### [TASK-004] Fix FocusLock App Limit Bypass, Re-Launch Bug & Daily Reset Logic
+- **Date**: 2026-10-22
+- **Objective**: Fix restricted app re-launch bypasses (Instagram, YouTube) through launcher taps, Recent Apps, app switching, and process recreation; ensure daily quota resets strictly at local calendar midnight (`LocalDate`).
+- **Root Cause**:
+  1. `BlockingActivity` overlay did not displace the restricted app's task from foreground when opened from Recent Apps or deep links.
+  2. `TimeChangeReceiver` wiped `blockedPackagesCache` leaving it empty until screen toggled.
+  3. No proactive 5s background monitor existed for midnight rollover without opening FocusLock.
+  4. Fractional seconds were lost via `% 2L` in session finish.
+- **Files Modified**:
+  - `app/src/main/java/com/focuslock/app/domain/engine/QuotaEngine.kt`
+  - `app/src/main/java/com/focuslock/app/service/FocusLockAccessibilityService.kt`
+  - `app/src/main/java/com/focuslock/app/presentation/BlockingActivity.kt`
+  - `app/src/main/java/com/focuslock/app/service/TimeChangeReceiver.kt`
+  - `app/src/main/java/com/focuslock/app/service/BootRecoveryReceiver.kt`
+  - `app/src/test/java/com/focuslock/app/service/ExternalAppBlockingTest.kt`
+  - `app/src/test/java/com/focuslock/app/core/update/AppUpdateManagerTest.kt`
+- **Verification**: `testDebugUnitTest` passed (all 103 tests passed, including 18 dedicated blocking/reset tests), `assembleDebug` passed.
+- **Outcome**: Complete elimination of bypasses, reliable local midnight rollover, and robust enforcement state machine.
+
+---
+
 ### [TASK-003] Continuous 30-Minute Screen Wellness Reminder System & 3D Animations
 - **Date**: 2026-10-22
 - **Objective**: Upgrade the top timer and break reminder into a complete wellness reminder system:

@@ -17,6 +17,13 @@ enum class ProtectionState {
     BLOCKED_UNTIL_RESET
 }
 
+enum class EnforcementState {
+    UNDER_LIMIT,
+    LIMIT_REACHED,
+    TEMPORARY_BYPASS_ACTIVE,
+    DAILY_RESET_PENDING
+}
+
 typealias QuotaStatus = ProtectionState
 
 data class AppQuotaEvaluation(
@@ -31,7 +38,13 @@ data class AppQuotaEvaluation(
     val emergencyUsedToday: Boolean = false,
     val emergencyExpiresAtMillis: Long = 0L,
     val blockedReason: String? = null,
-    val permissionsActive: Boolean = true
+    val permissionsActive: Boolean = true,
+    val enforcementState: EnforcementState = when (status) {
+        ProtectionState.ALLOWED, ProtectionState.WARNING -> EnforcementState.UNDER_LIMIT
+        ProtectionState.EMERGENCY_ACTIVE -> EnforcementState.TEMPORARY_BYPASS_ACTIVE
+        ProtectionState.EXHAUSTED -> EnforcementState.LIMIT_REACHED
+        ProtectionState.BLOCKED_UNTIL_RESET -> EnforcementState.DAILY_RESET_PENDING
+    }
 )
 
 sealed class EmergencyStartResult {
@@ -354,6 +367,18 @@ class QuotaEngine(
             }
         }
         return resetPerformed
+    }
+
+    suspend fun isAppExhausted(packageName: String): Boolean {
+        val today = TimeUtils.formatDate(timeProvider.getTodayLocalDate())
+        val usage = usageDao.getDailyUsageForApp(packageName, today) ?: return false
+        val app = protectedAppDao.getAppByPackageName(packageName) ?: return false
+        if (!app.enabled) return false
+        val isEmergency = usage.emergencyUsed &&
+            timeProvider.currentTimeMillis() < usage.emergencyExpiresAt &&
+            (timeProvider.elapsedRealtime() - usage.emergencyElapsedRealtimeAtStart) < EMERGENCY_DURATION_MILLIS
+        if (isEmergency) return false
+        return usage.isBlocked || (app.dailyLimitSeconds in 0L..usage.usedSeconds)
     }
 
     fun getSecondsUntilNextDailyReset(): Long {

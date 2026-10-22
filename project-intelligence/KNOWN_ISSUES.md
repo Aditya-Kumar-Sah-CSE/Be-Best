@@ -27,6 +27,24 @@ This document tracks confirmed issues, resolved bugs, root-cause analyses, and s
 
 ---
 
+### ISSUE-003: App Limit Bypass, Re-Launch Bug & Daily Reset Logic
+- **Reported:** When Instagram reached its daily limit, repeated launcher taps, Recent Apps re-entry, app switching, or external links allowed interaction. `TimeChangeReceiver` wiped the blocked cache leaving it empty until screen toggled. Midnight reset did not proactively rollover without opening FocusLock. Fractional seconds were lost via `% 2L`.
+- **Root Cause:**
+  1. `BlockingActivity` alone did not displace the restricted app's task from the foreground when launched from Recent Apps or deep links.
+  2. `TimeChangeReceiver` called `clearBlockedCache()` instead of refreshing, leaving `blockedPackagesCache` empty on time changes.
+  3. No proactive background calendar date check existed for local midnight rollover without opening the app.
+  4. Live usage tracking used `elapsedSecs % 2L` in session finish, dropping fractional seconds.
+- **Resolution:**
+  1. Added immediate foreground displacement via `performGlobalAction(GLOBAL_ACTION_HOME)` paired with instant `BlockingActivity` overlay launch.
+  2. Implemented smart 250ms debouncer preventing duplicate Intent spam without dropping app displacement.
+  3. Continuous 5-second calendar date monitor (`LocalDate`) triggers midnight rollover and unblocks apps for the new day automatically.
+  4. Replaced cache wipe with `refreshBlockedPackagesCache()` in `TimeChangeReceiver` and `BootRecoveryReceiver` to prevent time-tamper bypasses.
+  5. Implemented `EnforcementState` machine (`UNDER_LIMIT`, `LIMIT_REACHED`, `TEMPORARY_BYPASS_ACTIVE`, `DAILY_RESET_PENDING`) in `QuotaEngine`.
+  6. Live usage accounting switched to monotonic delta seconds without fractional loss.
+- **Status:** **Resolved & Verified via 18 comprehensive tests**.
+
+---
+
 ## 2. Inherent Android OS Architectural Constraints
 
 ### CONSTRAINT-001: Launcher Icon Tap Pre-emption

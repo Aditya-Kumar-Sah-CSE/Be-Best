@@ -25,9 +25,11 @@ class FocusLockAccessibilityService : AccessibilityService() {
 
     private var currentForegroundPackage: String? = null
     private var currentSessionStartElapsed: Long = 0L
+    private var lastRecordedElapsed: Long = 0L
     private var activeMonitoringJob: Job? = null
     private var lastBlockedPackage: String? = null
     private var lastBlockLaunchElapsed: Long = 0L
+    private var lastObservedLocalDate: String = com.focuslock.app.core.util.TimeUtils.getTodayDateString()
 
     // Continuous Screen Time Tracking (30-Minute Alert)
     private var continuousScreenStartElapsed: Long = 0L
@@ -44,7 +46,16 @@ class FocusLockAccessibilityService : AccessibilityService() {
                 }
                 Intent.ACTION_SCREEN_ON, Intent.ACTION_USER_PRESENT -> {
                     com.focuslock.app.core.util.BreakReminderHelper.onScreenOn(applicationContext)
-                    refreshBlockedPackagesCache()
+                    val today = com.focuslock.app.core.util.TimeUtils.getTodayDateString()
+                    if (today != lastObservedLocalDate) {
+                        lastObservedLocalDate = today
+                        serviceScope.launch {
+                            FocusLockApp.instance.quotaEngine.checkAndPerformMidnightReset()
+                            refreshBlockedPackagesCache()
+                        }
+                    } else {
+                        refreshBlockedPackagesCache()
+                    }
                 }
             }
         }
@@ -83,28 +94,6 @@ class FocusLockAccessibilityService : AccessibilityService() {
             }
         } catch (e: Exception) {
             // Ignore
-        }
-    }
-
-    private fun refreshBlockedPackagesCache() {
-        serviceScope.launch {
-            try {
-                val today = com.focuslock.app.core.util.TimeUtils.getTodayDateString()
-                val protectedApps = FocusLockApp.instance.database.protectedAppDao().getActiveProtectedApps()
-                for (app in protectedApps) {
-                    appNamesCache[app.packageName] = app.displayName
-                    val usage = FocusLockApp.instance.database.usageDao().getDailyUsageForApp(app.packageName, today)
-                    val isEmergency = usage != null && usage.emergencyUsed && System.currentTimeMillis() < usage.emergencyExpiresAt
-                    val isExhausted = usage != null && (usage.isBlocked || usage.usedSeconds >= app.dailyLimitSeconds)
-                    if (isExhausted && !isEmergency) {
-                        blockedPackagesCache.add(app.packageName)
-                    } else {
-                        blockedPackagesCache.remove(app.packageName)
-                    }
-                }
-            } catch (e: Exception) {
-                // Ignore
-            }
         }
     }
 
@@ -152,10 +141,13 @@ class FocusLockAccessibilityService : AccessibilityService() {
         }
 
         // Fast In-Memory Check: If package is already known to be blocked and no emergency bypass,
-        // intercept immediately on the main thread so Instagram does not remain usable in the foreground.
-        if (blockedPackagesCache.contains(packageName)) {
+        // immediately displace restricted app from foreground and present blocking screen.
+        if (isPackageBlockedFast(packageName)) {
             val cachedName = appNamesCache[packageName]
                 ?: packageName.substringAfterLast('.').replaceFirstChar { it.uppercase() }
+            try {
+                performGlobalAction(GLOBAL_ACTION_HOME)
+            } catch (e: Exception) {}
             launchBlockScreen(packageName, cachedName)
             return
         }
@@ -164,6 +156,7 @@ class FocusLockAccessibilityService : AccessibilityService() {
             recordPreviousSession()
             currentForegroundPackage = packageName
             currentSessionStartElapsed = SystemClock.elapsedRealtime()
+            lastRecordedElapsed = currentSessionStartElapsed
 
             // Synchronize and enforce per-app daily limit immediately on new foreground app
             checkAndEnforceBlock(packageName, isNewApp = true)
@@ -199,6 +192,7 @@ class FocusLockAccessibilityService : AccessibilityService() {
 
             if (app != null && app.enabled) {
                 appNamesCache[packageName] = app.displayName
+                protectedPackagesCache.add(packageName)
 
                 // 1. Evaluate quota FIRST (fast SQLite query, < 2ms)
                 val evaluation = FocusLockApp.instance.quotaEngine.evaluateQuota(packageName)
@@ -215,6 +209,9 @@ class FocusLockAccessibilityService : AccessibilityService() {
                             if (reEval.isBlocked) {
                                 blockedPackagesCache.add(packageName)
                                 if (currentForegroundPackage == packageName) {
+                                    try {
+                                        performGlobalAction(GLOBAL_ACTION_HOME)
+                                    } catch (e: Exception) {}
                                     launchBlockScreen(packageName, app.displayName)
                                 }
                             }
@@ -225,6 +222,9 @@ class FocusLockAccessibilityService : AccessibilityService() {
 
                 if (evaluation.isBlocked) {
                     blockedPackagesCache.add(packageName)
+                    try {
+                        performGlobalAction(GLOBAL_ACTION_HOME)
+                    } catch (e: Exception) {}
                     launchBlockScreen(packageName, app.displayName)
                     return@launch
                 }
@@ -239,6 +239,9 @@ class FocusLockAccessibilityService : AccessibilityService() {
                 val postSyncEval = FocusLockApp.instance.quotaEngine.evaluateQuota(packageName)
                 if (postSyncEval.isBlocked) {
                     blockedPackagesCache.add(packageName)
+                    try {
+                        performGlobalAction(GLOBAL_ACTION_HOME)
+                    } catch (e: Exception) {}
                     launchBlockScreen(packageName, app.displayName)
                     return@launch
                 }
@@ -247,26 +250,26 @@ class FocusLockAccessibilityService : AccessibilityService() {
                 if (isNewApp || activeMonitoringJob?.isActive != true) {
                     activeMonitoringJob?.cancel()
                     activeMonitoringJob = serviceScope.launch {
-                        val sessionStart = SystemClock.elapsedRealtime()
-                        var lastRecordedSessionSecs = 0L
-
                         while (currentForegroundPackage == packageName) {
                             delay(1000L)
-                            val elapsedInSession = (SystemClock.elapsedRealtime() - sessionStart) / 1000L
-                            val delta = elapsedInSession - lastRecordedSessionSecs
+                            val nowElapsed = SystemClock.elapsedRealtime()
+                            val deltaSecs = if (lastRecordedElapsed > 0L) {
+                                (nowElapsed - lastRecordedElapsed) / 1000L
+                            } else 0L
 
-                            // Record incremental usage to QuotaEngine every 2 seconds
-                            if (delta >= 2L) {
+                            // Record exact incremental seconds to QuotaEngine every second
+                            if (deltaSecs >= 1L) {
+                                lastRecordedElapsed += deltaSecs * 1000L
                                 FocusLockApp.instance.quotaEngine.recordUsage(
                                     packageName = packageName,
-                                    additionalSeconds = delta,
+                                    additionalSeconds = deltaSecs,
                                     source = "ACCESSIBILITY_ACTIVE"
                                 )
-                                lastRecordedSessionSecs = elapsedInSession
                             }
 
-                            // Periodically re-sync with UsageStatsManager
-                            if (elapsedInSession > 0 && elapsedInSession % 10L == 0L) {
+                            // Periodically re-sync with UsageStatsManager every 15s
+                            val totalSessionSecs = (nowElapsed - currentSessionStartElapsed) / 1000L
+                            if (totalSessionSecs > 0 && totalSessionSecs % 15L == 0L) {
                                 try {
                                     FocusLockApp.instance.realUsageTracker.syncPackageUsage(packageName)
                                 } catch (e: Exception) {}
@@ -275,14 +278,18 @@ class FocusLockAccessibilityService : AccessibilityService() {
                             val reCheck = FocusLockApp.instance.quotaEngine.evaluateQuota(packageName)
                             if (reCheck.isBlocked) {
                                 blockedPackagesCache.add(packageName)
+                                try {
+                                    performGlobalAction(GLOBAL_ACTION_HOME)
+                                } catch (e: Exception) {}
                                 launchBlockScreen(packageName, app.displayName)
-                                delay(1000L)
+                                delay(500L)
                             }
                         }
                     }
                 }
             } else {
                 blockedPackagesCache.remove(packageName)
+                protectedPackagesCache.remove(packageName)
             }
         }
     }
@@ -295,7 +302,8 @@ class FocusLockAccessibilityService : AccessibilityService() {
             return
         }
 
-        if (lastBlockedPackage == packageName && (nowElapsed - lastBlockLaunchElapsed) < 400L) {
+        // Debounce rapid duplicate intent starts within 250ms
+        if (lastBlockedPackage == packageName && (nowElapsed - lastBlockLaunchElapsed) < 250L) {
             return
         }
 
@@ -358,7 +366,7 @@ class FocusLockAccessibilityService : AccessibilityService() {
             val builder = androidx.core.app.NotificationCompat.Builder(this, FocusLockApp.CHANNEL_ID_PROTECTION)
                 .setSmallIcon(android.R.drawable.ic_lock_lock)
                 .setContentTitle("$appName is Locked")
-                .setContentText("You have reached your 30-minute daily limit.")
+                .setContentText("You have reached your daily allowance.")
                 .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
                 .setCategory(androidx.core.app.NotificationCompat.CATEGORY_ALARM)
                 .setAutoCancel(true)
@@ -375,6 +383,7 @@ class FocusLockAccessibilityService : AccessibilityService() {
     /**
      * Monitors continuous screen usage.
      * After 30 minutes of continuous screen-on time, alerts user to take a 5-minute break.
+     * Also detects local calendar midnight rollover.
      */
     private fun startContinuousBreakMonitor() {
         breakMonitorJob?.cancel()
@@ -382,6 +391,15 @@ class FocusLockAccessibilityService : AccessibilityService() {
             while (true) {
                 delay(5000L) // Check every 5 seconds
                 try {
+                    // Check for local calendar midnight rollover
+                    val todayStr = com.focuslock.app.core.util.TimeUtils.getTodayDateString()
+                    if (todayStr != lastObservedLocalDate) {
+                        lastObservedLocalDate = todayStr
+                        FocusLockApp.instance.quotaEngine.checkAndPerformMidnightReset()
+                        refreshBlockedPackagesCache()
+                        com.focuslock.app.core.overlay.FloatingTimerManager.show(applicationContext)
+                    }
+
                     if (!BlockingActivity.isBlockingScreenVisible) {
                         com.focuslock.app.core.util.BreakReminderHelper.checkAndTriggerReminder(applicationContext)
                     }
@@ -393,22 +411,25 @@ class FocusLockAccessibilityService : AccessibilityService() {
     private fun recordPreviousSession() {
         activeMonitoringJob?.cancel()
         val prevPkg = currentForegroundPackage ?: return
-        val start = currentSessionStartElapsed
-        if (start > 0L) {
-            val elapsedSecs = (SystemClock.elapsedRealtime() - start) / 1000L
-            currentSessionStartElapsed = 0L
-            serviceScope.launch {
-                try {
-                    if (elapsedSecs > 0L) {
-                        FocusLockApp.instance.quotaEngine.recordUsage(
-                            packageName = prevPkg,
-                            additionalSeconds = elapsedSecs % 2L,
-                            source = "ACCESSIBILITY_REMAINDER"
-                        )
-                    }
-                    FocusLockApp.instance.realUsageTracker.syncPackageUsage(prevPkg)
-                } catch (e: Exception) {}
-            }
+        val start = lastRecordedElapsed
+        val nowElapsed = SystemClock.elapsedRealtime()
+        val remainingSecs = if (start > 0L) (nowElapsed - start) / 1000L else 0L
+
+        currentForegroundPackage = null
+        currentSessionStartElapsed = 0L
+        lastRecordedElapsed = 0L
+
+        serviceScope.launch {
+            try {
+                if (remainingSecs > 0L) {
+                    FocusLockApp.instance.quotaEngine.recordUsage(
+                        packageName = prevPkg,
+                        additionalSeconds = remainingSecs,
+                        source = "ACCESSIBILITY_SESSION_END"
+                    )
+                }
+                FocusLockApp.instance.realUsageTracker.syncPackageUsage(prevPkg)
+            } catch (e: Exception) {}
         }
     }
 
@@ -454,10 +475,15 @@ class FocusLockAccessibilityService : AccessibilityService() {
 
     companion object {
         private val blockedPackagesCache = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        private val protectedPackagesCache = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
         private val appNamesCache = java.util.concurrent.ConcurrentHashMap<String, String>()
 
         fun isPackageBlockedFast(packageName: String): Boolean {
             return blockedPackagesCache.contains(packageName)
+        }
+
+        fun isPackageProtectedFast(packageName: String): Boolean {
+            return protectedPackagesCache.contains(packageName)
         }
 
         fun updateBlockedPackage(packageName: String, isBlocked: Boolean, appName: String? = null) {
@@ -471,8 +497,42 @@ class FocusLockAccessibilityService : AccessibilityService() {
             }
         }
 
+        fun refreshBlockedPackagesCache(context: Context? = null) {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val app = FocusLockApp.instance
+                    val today = com.focuslock.app.core.util.TimeUtils.getTodayDateString()
+                    val protectedApps = app.database.protectedAppDao().getActiveProtectedApps()
+                    val newProtected = mutableSetOf<String>()
+                    val nowWall = System.currentTimeMillis()
+                    val nowElapsed = SystemClock.elapsedRealtime()
+
+                    for (pApp in protectedApps) {
+                        newProtected.add(pApp.packageName)
+                        appNamesCache[pApp.packageName] = pApp.displayName
+                        val usage = app.database.usageDao().getDailyUsageForApp(pApp.packageName, today)
+                        val isEmergency = usage != null && usage.emergencyUsed &&
+                                nowWall < usage.emergencyExpiresAt &&
+                                (nowElapsed - usage.emergencyElapsedRealtimeAtStart) < 30_000L
+                        val isExhausted = usage != null && (usage.isBlocked || usage.usedSeconds >= pApp.dailyLimitSeconds)
+                        if (isExhausted && !isEmergency) {
+                            blockedPackagesCache.add(pApp.packageName)
+                        } else {
+                            blockedPackagesCache.remove(pApp.packageName)
+                        }
+                    }
+                    synchronized(protectedPackagesCache) {
+                        protectedPackagesCache.clear()
+                        protectedPackagesCache.addAll(newProtected)
+                    }
+                } catch (e: Exception) {
+                    // Ignore
+                }
+            }
+        }
+
         fun clearBlockedCache() {
-            blockedPackagesCache.clear()
+            refreshBlockedPackagesCache()
         }
     }
 }

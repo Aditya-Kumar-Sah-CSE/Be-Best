@@ -23,7 +23,7 @@ class TimeChangeReceiver : BroadcastReceiver() {
                     details = "System time or timezone change detected ($action); evaluating daily boundaries"
                 )
                 app.quotaEngine.checkAndPerformMidnightReset()
-                FocusLockAccessibilityService.clearBlockedCache()
+                FocusLockAccessibilityService.refreshBlockedPackagesCache()
             }
         }
     }

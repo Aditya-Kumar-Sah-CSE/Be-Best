@@ -6,6 +6,22 @@ This log maintains a compact history of coding tasks, verified changes, test exe
 
 ## Task Log Entries
 
+### [TASK-20261022-04] — Fix FocusLock App Limit Bypass, Re-Launch Bug & Daily Reset Logic
+- **Date:** 2026-10-22
+- **Objective:** Fix restricted app re-launch bypasses (Instagram, YouTube) through launcher taps, Recent Apps, app switching, and process recreation; ensure daily quota resets strictly at local calendar midnight (`LocalDate`).
+- **Files Modified:**
+  - `app/src/main/java/com/focuslock/app/domain/engine/QuotaEngine.kt`
+  - `app/src/main/java/com/focuslock/app/service/FocusLockAccessibilityService.kt`
+  - `app/src/main/java/com/focuslock/app/presentation/BlockingActivity.kt`
+  - `app/src/main/java/com/focuslock/app/service/TimeChangeReceiver.kt`
+  - `app/src/main/java/com/focuslock/app/service/BootRecoveryReceiver.kt`
+  - `app/src/test/java/com/focuslock/app/service/ExternalAppBlockingTest.kt`
+  - `app/src/test/java/com/focuslock/app/core/update/AppUpdateManagerTest.kt`
+- **Verification:** Unit tests passed (103/103 tests passed), debug APK build passed (`assembleDebug`).
+- **Outcome:** Complete elimination of re-launch bypasses, reliable local midnight rollover, and robust enforcement state machine.
+
+---
+
 ### [TASK-20261022-02] — Implement Project Intelligence System & Staleness Tracking
 - **Date:** 2026-10-22
 - **Objective:** Establish a persistent, maintainable Project Intelligence System in `project-intelligence/` to eliminate repeated whole-project exploration in future tasks.

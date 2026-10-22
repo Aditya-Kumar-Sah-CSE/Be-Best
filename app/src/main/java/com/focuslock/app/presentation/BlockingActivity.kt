@@ -209,6 +209,7 @@ fun BlockingScreen(
     val isEmergencyActive = currentEval?.status == ProtectionState.EMERGENCY_ACTIVE
     val emergencyUsedToday = currentEval?.emergencyUsedToday == true
     val canUseEmergency = currentEval?.canUseEmergency == true && !emergencyUsedToday
+    val isUnblockedAfterReset = currentEval != null && !currentEval.isBlocked && !isEmergencyActive
 
     // Subtle gentle breathing pulse on the danger ring
     val infiniteTransition = rememberInfiniteTransition(label = "blocking_pulse")
@@ -268,12 +269,12 @@ fun BlockingScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Title: Daily Limit Reached
+                // Title: Daily Limit Reached / Quota Reset
                 Text(
-                    text = "Daily Limit Reached",
+                    text = if (isUnblockedAfterReset) "Daily Quota Reset!" else "Daily Limit Reached",
                     fontSize = 24.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = Color.White,
+                    color = if (isUnblockedAfterReset) BrandCyan else Color.White,
                     textAlign = TextAlign.Center
                 )
 
@@ -290,7 +291,11 @@ fun BlockingScreen(
                 Spacer(modifier = Modifier.height(6.dp))
 
                 Text(
-                    text = "You've used your $appName allowance for today. Take a break and come back tomorrow.",
+                    text = if (isUnblockedAfterReset) {
+                        "Your daily allowance for $appName has been restored for today. Have a productive day!"
+                    } else {
+                        "You've used your $appName allowance for today. Take a break and come back tomorrow."
+                    },
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Normal,
                     color = Neutral200,
@@ -451,6 +456,34 @@ fun BlockingScreen(
                     .fillMaxWidth()
                     .padding(bottom = 12.dp)
             ) {
+                if (isUnblockedAfterReset) {
+                    Button(
+                        onClick = onEmergencyAccessGranted,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = BrandCyan
+                        ),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = null,
+                            tint = Color.Black,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Open $appName",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.Black
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+
                 // Button 1: Emergency Open — 30 seconds
                 if (canUseEmergency) {
                     Button(

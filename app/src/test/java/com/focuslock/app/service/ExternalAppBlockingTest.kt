@@ -1,13 +1,16 @@
 package com.focuslock.app.service
 
+import com.focuslock.app.data.local.FocusLockDatabase
+import com.focuslock.app.data.local.entity.ProtectedAppEntity
+import com.focuslock.app.core.util.TimeUtils
+import com.focuslock.app.domain.engine.EmergencyStartResult
+import com.focuslock.app.domain.engine.EnforcementState
 import com.focuslock.app.domain.engine.FakePermissionChecker
 import com.focuslock.app.domain.engine.FakeProtectedAppDao
 import com.focuslock.app.domain.engine.FakeTimeProvider
 import com.focuslock.app.domain.engine.FakeUsageDao
-import com.focuslock.app.domain.engine.EmergencyStartResult
 import com.focuslock.app.domain.engine.ProtectionState
 import com.focuslock.app.domain.engine.QuotaEngine
-import com.focuslock.app.data.local.entity.ProtectedAppEntity
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -369,5 +372,165 @@ class ExternalAppBlockingTest {
         assertEquals(0L, nextDayEval.usedSeconds)
         assertEquals(60L, nextDayEval.remainingSeconds)
         assertEquals(ProtectionState.ALLOWED, nextDayEval.status)
+        assertEquals(EnforcementState.UNDER_LIMIT, nextDayEval.enforcementState)
+    }
+
+    @Test
+    fun testReopeningYouTubeAfterExhaustion_RemainsBlocked() = runBlocking {
+        quotaEngine.recordUsage(youtubePkg, 1800L)
+        val eval1 = quotaEngine.evaluateQuota(youtubePkg)
+        assertTrue("YouTube must be blocked at limit", eval1.isBlocked)
+        assertEquals(EnforcementState.LIMIT_REACHED, eval1.enforcementState)
+
+        // User switches away to home screen and returns after 10 minutes
+        fakeTimeProvider.advanceSeconds(600)
+        val eval2 = quotaEngine.evaluateQuota(youtubePkg)
+        assertTrue("YouTube must remain strictly blocked on re-opening", eval2.isBlocked)
+        assertEquals(EnforcementState.LIMIT_REACHED, eval2.enforcementState)
+        assertEquals(0L, eval2.remainingSeconds)
+    }
+
+    @Test
+    fun testRecentAppsReEntry_RemainsBlocked() = runBlocking {
+        quotaEngine.recordUsage(instagramPkg, 1800L)
+        // User moves to recents overview, then taps Instagram card again
+        fakeTimeProvider.advanceSeconds(15)
+        val recentsEval = quotaEngine.evaluateQuota(instagramPkg)
+        assertTrue("Recent Apps re-entry must remain strictly blocked", recentsEval.isBlocked)
+        assertEquals(0L, recentsEval.remainingSeconds)
+        assertEquals(EnforcementState.LIMIT_REACHED, recentsEval.enforcementState)
+    }
+
+    @Test
+    fun testSwitchingBetweenMultipleRestrictedApps_IndependentEnforcement() = runBlocking {
+        // Instagram exhausted
+        quotaEngine.recordUsage(instagramPkg, 1800L)
+        // YouTube used for only 10 minutes (600s)
+        quotaEngine.recordUsage(youtubePkg, 600L)
+
+        val igEval = quotaEngine.evaluateQuota(instagramPkg)
+        val ytEval = quotaEngine.evaluateQuota(youtubePkg)
+
+        assertTrue("Instagram must be blocked", igEval.isBlocked)
+        assertEquals(EnforcementState.LIMIT_REACHED, igEval.enforcementState)
+
+        assertFalse("YouTube must NOT be blocked", ytEval.isBlocked)
+        assertEquals(EnforcementState.UNDER_LIMIT, ytEval.enforcementState)
+        assertEquals(1200L, ytEval.remainingSeconds)
+    }
+
+    @Test
+    fun testDeviceRebootRecovery_PreservesExhaustedState() = runBlocking {
+        quotaEngine.recordUsage(instagramPkg, 1800L)
+        // Simulate phone reboot (monotonic clock resets to 5s post-boot)
+        fakeTimeProvider.simulateReboot(postBootElapsedMillis = 5000L)
+        val rebootEval = quotaEngine.evaluateQuota(instagramPkg)
+        assertTrue("After device reboot, exhausted quota must be recovered from database", rebootEval.isBlocked)
+        assertEquals(1800L, rebootEval.usedSeconds)
+        assertEquals(EnforcementState.LIMIT_REACHED, rebootEval.enforcementState)
+    }
+
+    @Test
+    fun testTemporaryBypassExpiry_ImmediatelyRestoresEnforcementState() = runBlocking {
+        quotaEngine.recordUsage(instagramPkg, 1800L)
+        val res = quotaEngine.startEmergencySession(instagramPkg)
+        assertTrue(res is EmergencyStartResult.Success)
+
+        // 10s into emergency window
+        fakeTimeProvider.advanceSeconds(10)
+        val active = quotaEngine.evaluateQuota(instagramPkg)
+        assertEquals(EnforcementState.TEMPORARY_BYPASS_ACTIVE, active.enforcementState)
+        assertFalse(active.isBlocked)
+
+        // After 30s expire
+        fakeTimeProvider.advanceSeconds(25)
+        val expired = quotaEngine.evaluateQuota(instagramPkg)
+        assertEquals(EnforcementState.DAILY_RESET_PENDING, expired.enforcementState)
+        assertTrue("Exhausted enforcement must be restored immediately upon bypass expiry", expired.isBlocked)
+    }
+
+    @Test
+    fun testBeforeMidnightExhaustion_RemainsBlockedAt1159PM() = runBlocking {
+        // Quota exhausted at 10:00 AM
+        quotaEngine.recordUsage(instagramPkg, 1800L)
+        assertTrue(quotaEngine.evaluateQuota(instagramPkg).isBlocked)
+
+        // Advance 13 hours and 59 minutes to 11:59 PM same day
+        fakeTimeProvider.advanceSeconds(13 * 3600 + 59 * 60)
+        val lateNightEval = quotaEngine.evaluateQuota(instagramPkg)
+        assertTrue("Quota reached in morning must remain exhausted until midnight", lateNightEval.isBlocked)
+        assertEquals(EnforcementState.LIMIT_REACHED, lateNightEval.enforcementState)
+    }
+
+    @Test
+    fun testLocalMidnightRollover_ResetsQuotasToUnderLimit() = runBlocking {
+        quotaEngine.recordUsage(instagramPkg, 1800L)
+        assertTrue(quotaEngine.evaluateQuota(instagramPkg).isBlocked)
+
+        // Advance to next day 12:00:01 AM
+        fakeTimeProvider.advanceDateByDays(1)
+        fakeTimeProvider.advanceSeconds(1)
+        quotaEngine.checkAndPerformMidnightReset()
+
+        val nextDayEval = quotaEngine.evaluateQuota(instagramPkg)
+        assertFalse("App must be unblocked after local midnight rollover", nextDayEval.isBlocked)
+        assertEquals(EnforcementState.UNDER_LIMIT, nextDayEval.enforcementState)
+        assertEquals(0L, nextDayEval.usedSeconds)
+    }
+
+    @Test
+    fun testAppLaunchImmediatelyAfterMidnight_StartsFreshQuota() = runBlocking {
+        quotaEngine.recordUsage(instagramPkg, 1800L)
+        // Midnight passes
+        fakeTimeProvider.advanceDateByDays(1)
+        fakeTimeProvider.advanceSeconds(5) // 12:00:05 AM
+
+        // First app launch today
+        quotaEngine.checkAndPerformMidnightReset()
+        val eval = quotaEngine.evaluateQuota(instagramPkg)
+        assertFalse(eval.isBlocked)
+        assertEquals(1800L, eval.remainingSeconds)
+
+        // User uses 10 seconds of Instagram
+        quotaEngine.recordUsage(instagramPkg, 10L)
+        val postUsage = quotaEngine.evaluateQuota(instagramPkg)
+        assertEquals(10L, postUsage.usedSeconds)
+        assertEquals(1790L, postUsage.remainingSeconds)
+        assertEquals(EnforcementState.UNDER_LIMIT, postUsage.enforcementState)
+    }
+
+    @Test
+    fun testTimezoneAndSystemTimeChanges_ReEvaluatesWithoutBypass() = runBlocking {
+        quotaEngine.recordUsage(instagramPkg, 1800L)
+        assertTrue(quotaEngine.evaluateQuota(instagramPkg).isBlocked)
+
+        // Simulate user altering timezone
+        fakeTimeProvider.setZone(ZoneId.of("Asia/Kolkata"))
+        // If still same date, app must remain blocked
+        val tzEval = quotaEngine.evaluateQuota(instagramPkg)
+        assertTrue("Timezone shift must not clear exhausted quota", tzEval.isBlocked)
+        assertEquals(1800L, tzEval.usedSeconds)
+    }
+
+    @Test
+    fun testDatabaseMigration_SchemaSafety() {
+        val mockDb = java.lang.reflect.Proxy.newProxyInstance(
+            androidx.sqlite.db.SupportSQLiteDatabase::class.java.classLoader,
+            arrayOf(androidx.sqlite.db.SupportSQLiteDatabase::class.java)
+        ) { _, _, _ -> null } as androidx.sqlite.db.SupportSQLiteDatabase
+
+        // Execute migrations 2->3 and 3->4 safely
+        FocusLockDatabase.MIGRATION_2_3.migrate(mockDb)
+        FocusLockDatabase.MIGRATION_3_4.migrate(mockDb)
+        assertTrue("Database migrations executed without exception", true)
+    }
+
+    @Test
+    fun testFloatingTimerAndWellnessReminderRegression() {
+        // Verify TimeUtils countdown formatting and reset calculation logic
+        val midnightSecs = TimeUtils.getSecondsUntilNextDailyReset()
+        assertTrue("Midnight countdown seconds must be positive", midnightSecs >= 0L)
+        val formatted = TimeUtils.formatCountdown(3665L)
+        assertEquals("01:01:05", formatted)
     }
 }

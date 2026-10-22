@@ -29,3 +29,13 @@ This document records architectural boundaries, operating system quirks, OEM bat
 2. **Home Screen Flashing & 1-2s Delay on Instagram (Fixed v1.2.1)**:
    - *Issue*: Previous code used `GLOBAL_ACTION_HOME` with a 100ms delay, causing screen flashes and letting Instagram feed render momentarily.
    - *Fix*: Removed synthetic delay, launched `BlockingActivity` directly over Instagram, and backed package lookups with an in-memory cache.
+
+3. **App Limit Bypass, Re-Launch Bug & Daily Reset (Fixed v1.2.3)**:
+   - *Issue*: Repeated taps, Recent Apps re-entry, deep links, or app switching after limit exhaustion allowed brief interaction. `TimeChangeReceiver` cleared blocked cache leaving it empty until screen toggled. Fractional seconds were lost via `% 2L`.
+   - *Fix*:
+     - Immediate foreground displacement via `performGlobalAction(GLOBAL_ACTION_HOME)` paired with instant `BlockingActivity` overlay launch.
+     - Smart 250ms debouncer prevents duplicate Intent spam without dropping window displacement.
+     - 5-second continuous local calendar date monitor (`LocalDate`) triggers midnight rollover and unblocks apps for the new day automatically.
+     - Replaced cache wipe with `refreshBlockedPackagesCache()` in `TimeChangeReceiver` and `BootRecoveryReceiver` to prevent time-tamper bypasses.
+     - Implemented `EnforcementState` machine (`UNDER_LIMIT`, `LIMIT_REACHED`, `TEMPORARY_BYPASS_ACTIVE`, `DAILY_RESET_PENDING`) in `QuotaEngine`.
+     - Live usage accounting switched to monotonic delta seconds without fractional loss.

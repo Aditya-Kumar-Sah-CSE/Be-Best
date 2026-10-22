@@ -1,10 +1,10 @@
 {
-  "versionCode": 5,
-  "versionName": "1.2.2",
-  "releaseNotes": "• Continuous 30-Minute Screen-On Timer: Monotonic screen tracking; switching apps never resets the timer; screen-off resets session\n• Pleasant Alert Sound: Harmonic synthesized chime and warm spoken prompt ('Please, sir! It\\'s time to take care of yourself')\n• Custom Audio & Video: Pick any song or video from device storage with persistent URI permissions and volume slider\n• 3D Animations: High-fidelity animated walking character and drinking water glass Canvas visuals\n• 3 Clear User Actions: 'Take a 5-Minute Break', 'Remind Me in 5 Minutes' (Snooze), and 'Dismiss'\n• Synchronized Top Floating Timer: Displays live countdown (◷ 00:00 / 30:00) and break progress (☕ Break 05:00)",
-  "apkUrl": "https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/release/FocusLock-v1.2.2.apk",
-  "apkSha256": "20054ec6dfd1937423ccf1a8090749eec946f569d135287b8bd1947c7638f3b9",
-  "apkSizeBytes": 12218045,
+  "versionCode": 6,
+  "versionName": "1.2.3",
+  "releaseNotes": "• App Limit Bypass Fix: Re-launching, home-press, app-switching, notification taps, or rapid launcher taps now immediately displace blocked apps back to Home and surface BlockingActivity reliably\n• Monotonic Accounting: Sub-minute accounting tracks exact elapsed seconds without loss\n• Enforcement State Machine: Formal EnforcementState (UNDER_LIMIT, LIMIT_REACHED, TEMPORARY_BYPASS_ACTIVE, DAILY_RESET_PENDING) integrated into QuotaEngine\n• Automatic Local Midnight Rollover: Background date monitor checks local calendar date every 5s, resetting quotas seamlessly at 00:00 without app restart\n• Tamper-Proof Time Changes: Clock manipulation or timezone changes no longer unblock exhausted app quotas; blocked package caches remain intact\n• Midnight Rollover UI: BlockingActivity automatically restores access past midnight with an interactive Open App action",
+  "apkUrl": "https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/release/FocusLock-v1.2.3.apk",
+  "apkSha256": "12d462e585639a578f2940b2de82206fabde09d1da2f341b86135925cdfc323a",
+  "apkSizeBytes": 12218043,
   "minSupportedVersionCode": 1,
   "isMandatory": false
 }
