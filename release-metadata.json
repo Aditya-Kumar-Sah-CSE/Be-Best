@@ -1,10 +1,10 @@
 {
-  "versionCode": 7,
-  "versionName": "1.2.4",
-  "releaseNotes": "• Instagram Close-Without-Redirect Fix: Eliminated premature Home displacement conflict; BlockingActivity now renders reliably on top of Instagram without closing or kicking back to the launcher\n• Clear Limit Screen: Prominently displays 'You've reached your daily limit', configured quota, and exact tracked usage vs limit\n• Continuous 30m Wellness Timer: 5-minute screen-off grace period preserves remaining time across short locks and recovers safely from device reboots\n• Monitoring Health Checks: Proactively detects missing Usage Access permissions and guides user to settings",
-  "apkUrl": "https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/release/FocusLock-v1.2.4.apk",
-  "apkSha256": "1FE16261A7A13CCCC22E88BDB94CC283192F76475807FE4EFE3927C4F717C8E9",
-  "apkSizeBytes": 12234438,
+  "versionCode": 8,
+  "versionName": "1.2.5",
+  "releaseNotes": "• 10m & 5m Quota Warnings: Timely notifications delivered when approaching daily limits with persistence and at-most-once daily delivery\n• Daily Limit Enforcement & Keyboard Bypass Fix: Resolved IME soft-keyboard interruption to maintain persistent blocking across repeated reopenings\n• 5-Minute Break Countdown Across Screen-Off: Real elapsed-time break countdown that continues in background, wakes on expiry, and recovers across device reboot",
+  "apkUrl": "https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/release/FocusLock-v1.2.5.apk",
+  "apkSha256": "9402DFBC34B243F224FB52BD44D4B09169D0E0F1D21D1B7177B58CF051EDAA37",
+  "apkSizeBytes": 12234450,
   "minSupportedVersionCode": 1,
   "isMandatory": false
 }

@@ -3,7 +3,7 @@
 FocusLock utilizes **AndroidX Room (SQLite)** as its persistent local storage engine.
 - **Database Class**: `com.focuslock.app.data.local.FocusLockDatabase`
 - **Database Name**: `focuslock.db`
-- **Current Version**: `4`
+- **Current Version**: `5`
 
 ---
 
@@ -39,6 +39,8 @@ Tracks cumulative daily usage, session metrics, and quota exhaustion flags per p
 | `approximateScrollCount` | `INTEGER` | NO | `0` | Estimated user scrolls during sessions. *(Added in Migration 4)* |
 | `activitySource` | `TEXT` | NO | `'UNKNOWN'` | Tracking source (`USAGE_STATS_API`, `ACCESSIBILITY`, `SYSTEM`). *(Added in Migration 4)* |
 | `activityConfidence` | `REAL` | NO | `1.0` | Confidence metric of tracking accuracy (0.0 to 1.0). *(Added in Migration 4)* |
+| `warning10Triggered` | `INTEGER` | NO | `0` (false) | Flag indicating if 10-minute warning was triggered today. *(Added in Migration 5)* |
+| `warning5Triggered` | `INTEGER` | NO | `0` (false) | Flag indicating if 5-minute warning was triggered today. *(Added in Migration 5)* |
 | `emergencyUsed` | `INTEGER` | NO | `0` (false) | Flag indicating if emergency bypass was triggered today. *(Added in Migration 3)* |
 | `emergencyStartedAt` | `INTEGER` | YES | `NULL` | Timestamp when emergency bypass began. *(Added in Migration 3)* |
 | `emergencyExpiresAt` | `INTEGER` | YES | `NULL` | Timestamp when emergency bypass expires. *(Added in Migration 3)* |
@@ -93,3 +95,4 @@ Global application settings and security configuration.
 1. **Migration 1 ➔ 2**: Added `focus_sessions` table for Pomodoro blocks.
 2. **Migration 2 ➔ 3**: Added emergency bypass tracking columns (`emergencyUsed`, `emergencyStartedAt`, `emergencyExpiresAt`, `emergencyElapsedRealtimeAtStart`) to `daily_usage`.
 3. **Migration 3 ➔ 4**: Added detailed session metrics (`sessionCount`, `longestSessionSeconds`, `firstActivityAt`, `lastActivityAt`, `approximateScrollCount`, `activitySource`, `activityConfidence`) to `daily_usage`.
+4. **Migration 4 ➔ 5**: Added `warning10Triggered` and `warning5Triggered` columns to `daily_usage` table to persist quota warning delivery per app per local calendar day across restarts.

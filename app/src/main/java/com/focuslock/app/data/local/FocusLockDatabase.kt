@@ -26,7 +26,7 @@ import com.focuslock.app.data.local.entity.UserSettingsEntity
         ProtectionEventEntity::class,
         UserSettingsEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class FocusLockDatabase : RoomDatabase() {
@@ -61,6 +61,13 @@ abstract class FocusLockDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE daily_usage ADD COLUMN warning10Triggered INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE daily_usage ADD COLUMN warning5Triggered INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getInstance(context: Context): FocusLockDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -68,7 +75,7 @@ abstract class FocusLockDatabase : RoomDatabase() {
                     FocusLockDatabase::class.java,
                     "focuslock_local.db"
                 )
-                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

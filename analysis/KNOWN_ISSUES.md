@@ -55,3 +55,18 @@ This document records architectural boundaries, operating system quirks, OEM bat
      - Turning screen OFF for >= 5 minutes expires session.
      - Device reboot verifies wall-clock elapsed time against 5-minute grace threshold, preserving session across reboots safely.
      - Clock abstraction allows 100% deterministic unit testing without real-time delays.
+
+5. **Missing 10-Minute & 5-Minute Daily Quota Warnings (Fixed v1.2.5)**:
+   - *Issue*: Daily quota approaching warnings did not appear.
+   - *Root Cause*: Zero code existed to post quota warning notifications or persist warning delivery; `QuotaEngine` only had an unused 80% status.
+   - *Fix*: Added `warning10Triggered` and `warning5Triggered` columns to Room `DailyUsageEntity` (DB migration 4->5); dynamically evaluates thresholds (`remainingTime <= 10m` and `<= 5m`); guarantees at-most-once delivery per local calendar day; evaluates immediately on startup; uses `NotificationManagerCompat` with floating overlay fallback; resets flags at local midnight.
+
+6. **Inconsistent Quota Enforcement & Keyboard Bypass (Fixed v1.2.5)**:
+   - *Issue*: Instagram could be used for hours past the daily limit.
+   - *Root Cause*: Input Method Editors (soft keyboards like Gboard, SwiftKey) were not excluded, so typing in Instagram triggered window state changes with IME package names, resetting `currentForegroundPackage` to null and cancelling the active monitoring coroutine ticker. When keyboard was dismissed, Android did not fire another window transition event, allowing hours of untracked usage. Furthermore, accessibility monitoring loop did not exit immediately upon blocking an app, causing redundant loop evaluations.
+   - *Fix*: Added `isInputMethodOrTransientOverlay` recognizing IME packages, preventing keyboard events from interrupting active monitoring tickers. Added immediate `break` in accessibility monitoring loop upon blocking. Reconciliations preserve `isBlocked = existing.isBlocked || (reconciledSeconds >= quota)`.
+
+7. **5-Minute Break Timer Stopping When Screen Turns Off (Fixed v1.2.5)**:
+   - *Issue*: 5-minute break timer stopped or reset when the screen turned off.
+   - *Root Cause*: `BreakReminderHelper.onScreenOff()` and `expireSessionIfGracePeriodOver()` explicitly deleted `KEY_BREAK_ACTIVE` and `KEY_BREAK_START_ELAPSED` from SharedPreferences when screen turned off. `BreakAlertActivity.kt` relied on an in-memory Compose integer loop.
+   - *Fix*: Persisted break start time and deadline (monotonic and wall-clock); countdown derived dynamically from elapsed time; `scheduleBreakCompletionAlarm()` uses `AlarmManager.RTC_WAKEUP`; `onDeviceReboot()` restores active break if wall diff < 5 min; `completeBreak()` is idempotent and fires completion notification once; strictly decoupled from 30-minute wellness timer.

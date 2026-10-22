@@ -48,6 +48,10 @@ class AndroidPermissionChecker(private val context: Context) : PermissionChecker
         return enabledServices.contains(canonical) || enabledServices.contains(shortName) || enabledServices.contains(altName)
     }
 
+    fun hasNotificationPermission(): Boolean {
+        return androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()
+    }
+
     override fun areEnforcementPermissionsActive(): Boolean {
         return isUsageAccessGranted() && isAccessibilityServiceEnabled()
     }

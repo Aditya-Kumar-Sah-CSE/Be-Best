@@ -10,6 +10,7 @@ class BreakReminderActionReceiver : BroadcastReceiver() {
         const val ACTION_SNOOZE = "com.focuslock.app.ACTION_SNOOZE_BREAK_REMINDER"
         const val ACTION_DISMISS = "com.focuslock.app.ACTION_DISMISS_BREAK_REMINDER"
         const val ACTION_START_BREAK = "com.focuslock.app.ACTION_START_BREAK"
+        const val ACTION_BREAK_COMPLETE = "com.focuslock.app.ACTION_BREAK_COMPLETE"
     }
 
     override fun onReceive(context: Context?, intent: Intent?) {
@@ -26,6 +27,9 @@ class BreakReminderActionReceiver : BroadcastReceiver() {
                 try {
                     com.focuslock.app.presentation.breakalert.BreakAlertActivity.launch(context, autoStart = true)
                 } catch (e: Exception) {}
+            }
+            ACTION_BREAK_COMPLETE -> {
+                BreakReminderHelper.completeBreak(context)
             }
         }
     }

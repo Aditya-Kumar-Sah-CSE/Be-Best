@@ -23,6 +23,8 @@ data class DailyUsageEntity(
     val emergencyStartedAt: Long = 0L,
     val emergencyExpiresAt: Long = 0L,
     val emergencyElapsedRealtimeAtStart: Long = 0L,
+    val warning10Triggered: Boolean = false,
+    val warning5Triggered: Boolean = false,
     val sessionCount: Int = 0,
     val longestSessionSeconds: Long = 0L,
     val firstActivityAt: Long = 0L,

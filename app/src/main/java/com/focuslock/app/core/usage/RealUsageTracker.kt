@@ -315,7 +315,8 @@ class RealUsageTracker(
                 usageDao.insertOrUpdateDailyUsage(
                     existing.copy(
                         usedSeconds = reconciledSeconds,
-                        isBlocked = reconciledSeconds >= existing.quotaSeconds,
+                        quotaSeconds = quota,
+                        isBlocked = existing.isBlocked || (reconciledSeconds >= quota),
                         sessionCount = maxOf(existing.sessionCount, sessionSummary.sessionCount),
                         longestSessionSeconds = maxOf(existing.longestSessionSeconds, sessionSummary.longestSessionSeconds),
                         firstActivityAt = if (existing.firstActivityAt > 0L) existing.firstActivityAt else sessionSummary.firstActivityAt,
@@ -378,7 +379,8 @@ class RealUsageTracker(
             usageDao.insertOrUpdateDailyUsage(
                 existing.copy(
                     usedSeconds = reconciledSeconds,
-                    isBlocked = reconciledSeconds >= existing.quotaSeconds,
+                    quotaSeconds = quota,
+                    isBlocked = existing.isBlocked || (reconciledSeconds >= quota),
                     sessionCount = maxOf(existing.sessionCount, sessionSummary.sessionCount),
                     longestSessionSeconds = maxOf(existing.longestSessionSeconds, sessionSummary.longestSessionSeconds),
                     firstActivityAt = if (existing.firstActivityAt > 0L) existing.firstActivityAt else sessionSummary.firstActivityAt,

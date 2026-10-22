@@ -519,9 +519,10 @@ class ExternalAppBlockingTest {
             arrayOf(androidx.sqlite.db.SupportSQLiteDatabase::class.java)
         ) { _, _, _ -> null } as androidx.sqlite.db.SupportSQLiteDatabase
 
-        // Execute migrations 2->3 and 3->4 safely
+        // Execute migrations 2->3, 3->4, and 4->5 safely
         FocusLockDatabase.MIGRATION_2_3.migrate(mockDb)
         FocusLockDatabase.MIGRATION_3_4.migrate(mockDb)
+        FocusLockDatabase.MIGRATION_4_5.migrate(mockDb)
         assertTrue("Database migrations executed without exception", true)
     }
 
@@ -583,6 +584,32 @@ class ExternalAppBlockingTest {
             assertTrue("Repeated re-launch #$i must remain strictly blocked", reEval.isBlocked)
             assertEquals(10800L, reEval.usedSeconds)
         }
+    }
+
+    @Test
+    fun testRepeatedLaunchAttempts_PersistentlyBlockedUntilMidnight() = runBlocking {
+        // App reaches exact limit
+        quotaEngine.recordUsage(instagramPkg, 1800L)
+        val initialBlock = quotaEngine.evaluateQuota(instagramPkg)
+        assertTrue(initialBlock.isBlocked)
+
+        // User rapidly closes and tries to reopen 10 times
+        for (attempt in 1..10) {
+            fakeTimeProvider.advanceSeconds(5)
+            val eval = quotaEngine.evaluateQuota(instagramPkg)
+            assertTrue("Attempt #$attempt must be blocked immediately", eval.isBlocked)
+            assertEquals("Daily allowance of 30m exhausted", eval.blockedReason)
+        }
+
+        // Advance to next calendar day
+        fakeTimeProvider.advanceDateByDays(1)
+        quotaEngine.checkAndPerformMidnightReset()
+
+        // After midnight reset, access must be restored with 0 usedSeconds
+        val afterMidnight = quotaEngine.evaluateQuota(instagramPkg)
+        assertFalse("App must be unblocked after midnight reset", afterMidnight.isBlocked)
+        assertEquals(0L, afterMidnight.usedSeconds)
+        assertEquals(1800L, afterMidnight.remainingSeconds)
     }
 }
 

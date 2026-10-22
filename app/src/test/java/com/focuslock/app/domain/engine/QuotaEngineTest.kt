@@ -15,6 +15,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -158,6 +159,26 @@ class FakeUsageDao : UsageDao {
                 emergencyStartedAt = startedAt,
                 emergencyExpiresAt = expiresAt,
                 emergencyElapsedRealtimeAtStart = elapsedStart,
+                updatedAt = now
+            )
+        }
+    }
+
+    override suspend fun markWarning10Triggered(packageName: String, date: String, now: Long) {
+        val existing = getDailyUsageForApp(packageName, date)
+        if (existing != null) {
+            usageMap[key(packageName, date)] = existing.copy(
+                warning10Triggered = true,
+                updatedAt = now
+            )
+        }
+    }
+
+    override suspend fun markWarning5Triggered(packageName: String, date: String, now: Long) {
+        val existing = getDailyUsageForApp(packageName, date)
+        if (existing != null) {
+            usageMap[key(packageName, date)] = existing.copy(
+                warning5Triggered = true,
                 updatedAt = now
             )
         }
@@ -639,5 +660,105 @@ class QuotaEngineTest {
 
         assertFalse("FocusLock itself must NEVER be blocked", eval.isBlocked)
         assertEquals(ProtectionState.ALLOWED, eval.status)
+    }
+
+    @Test
+    fun testWarningThresholds_30MinuteQuota_ExactBoundaries() = runBlocking {
+        // Daily limit: 30 minutes = 1800s
+        // 19:59 = 1199s (remaining = 601s) -> No 10-min warning yet
+        quotaEngine.recordUsage(instagramPkg, 1199L)
+        val eval1959 = quotaEngine.evaluateQuota(instagramPkg)
+        assertEquals(601L, eval1959.remainingSeconds)
+        assertEquals(QuotaWarningType.NONE, eval1959.activeWarning)
+        assertFalse(eval1959.isBlocked)
+        val delivery1959 = quotaEngine.checkAndRecordWarningDelivery(instagramPkg)
+        assertNull("At 19:59, 10m warning should NOT dispatch", delivery1959)
+
+        // Advance 1s to 20:00 = 1200s (remaining = 600s) -> 10-minute warning triggers
+        quotaEngine.recordUsage(instagramPkg, 1L)
+        val eval2000 = quotaEngine.evaluateQuota(instagramPkg)
+        assertEquals(600L, eval2000.remainingSeconds)
+        assertEquals(QuotaWarningType.TEN_MINUTES, eval2000.activeWarning)
+        val delivery2000 = quotaEngine.checkAndRecordWarningDelivery(instagramPkg)
+        assertNotNull("At 20:00, 10m warning MUST dispatch", delivery2000)
+        assertEquals(QuotaWarningType.TEN_MINUTES, delivery2000!!.warningToDeliver)
+
+        // Subsequent check at 20:05 = 1205s (+5s) -> at-most-once delivery suppresses duplicate
+        quotaEngine.recordUsage(instagramPkg, 5L)
+        val eval2005 = quotaEngine.evaluateQuota(instagramPkg)
+        val delivery2005 = quotaEngine.checkAndRecordWarningDelivery(instagramPkg)
+        assertNull("Duplicate 10m warning must NOT be delivered again today", delivery2005)
+
+        // Advance 294s to 24:59 = 1499s (remaining = 301s) -> No 5-min warning yet
+        quotaEngine.recordUsage(instagramPkg, 294L)
+        val eval2459 = quotaEngine.evaluateQuota(instagramPkg)
+        assertEquals(301L, eval2459.remainingSeconds)
+        val delivery2459 = quotaEngine.checkAndRecordWarningDelivery(instagramPkg)
+        assertNull("At 24:59, 5m warning should NOT dispatch", delivery2459)
+
+        // Advance 1s to 25:00 = 1500s (remaining = 300s) -> 5-minute warning triggers
+        quotaEngine.recordUsage(instagramPkg, 1L)
+        val eval2500 = quotaEngine.evaluateQuota(instagramPkg)
+        assertEquals(300L, eval2500.remainingSeconds)
+        assertEquals(QuotaWarningType.FIVE_MINUTES, eval2500.activeWarning)
+        val delivery2500 = quotaEngine.checkAndRecordWarningDelivery(instagramPkg)
+        assertNotNull("At 25:00, 5m warning MUST dispatch", delivery2500)
+        assertEquals(QuotaWarningType.FIVE_MINUTES, delivery2500!!.warningToDeliver)
+
+        // Duplicate suppression for 5-min warning
+        val delivery2500Dup = quotaEngine.checkAndRecordWarningDelivery(instagramPkg)
+        assertNull("Duplicate 5m warning must NOT be delivered again today", delivery2500Dup)
+
+        // Advance 299s to 29:59 = 1799s (remaining = 1s) -> App remains allowed
+        quotaEngine.recordUsage(instagramPkg, 299L)
+        val eval2959 = quotaEngine.evaluateQuota(instagramPkg)
+        assertEquals(1L, eval2959.remainingSeconds)
+        assertFalse("At 29:59, app must remain accessible", eval2959.isBlocked)
+
+        // Advance 1s to 30:00 = 1800s (remaining = 0s) -> Quota exhausted, blocked immediately
+        quotaEngine.recordUsage(instagramPkg, 1L)
+        val eval3000 = quotaEngine.evaluateQuota(instagramPkg)
+        assertEquals(0L, eval3000.remainingSeconds)
+        assertTrue("At 30:00, app MUST be blocked", eval3000.isBlocked)
+        assertEquals(EnforcementState.LIMIT_REACHED, eval3000.enforcementState)
+    }
+
+    @Test
+    fun testWarningDelivery_AlreadyCrossedThresholdOnStartup() = runBlocking {
+        // App starts FocusLock after Instagram has already been used for 26 minutes (1560s)
+        quotaEngine.recordUsage(instagramPkg, 1560L)
+
+        val eval = quotaEngine.evaluateQuota(instagramPkg)
+        assertEquals(240L, eval.remainingSeconds) // 4 min remaining
+        assertEquals(QuotaWarningType.FIVE_MINUTES, eval.activeWarning)
+
+        // Must deliver warning immediately without requiring prior 10m delivery
+        val delivery = quotaEngine.checkAndRecordWarningDelivery(instagramPkg)
+        assertNotNull("Warning must be delivered immediately on startup if threshold was already crossed", delivery)
+        assertEquals(QuotaWarningType.FIVE_MINUTES, delivery!!.warningToDeliver)
+
+        // Subsequent check suppressed
+        val delivery2 = quotaEngine.checkAndRecordWarningDelivery(instagramPkg)
+        assertNull(delivery2)
+    }
+
+    @Test
+    fun testWarningFlags_ResetAtLocalMidnight() = runBlocking {
+        // Day 1: trigger warning
+        quotaEngine.recordUsage(instagramPkg, 1500L)
+        val deliveryDay1 = quotaEngine.checkAndRecordWarningDelivery(instagramPkg)
+        assertNotNull(deliveryDay1)
+
+        // Advance to Day 2
+        fakeTimeProvider.advanceDateByDays(1)
+        quotaEngine.checkAndPerformMidnightReset()
+
+        // Day 2: fresh usage of 20 minutes triggers 10m warning anew
+        quotaEngine.recordUsage(instagramPkg, 1200L)
+        val evalDay2 = quotaEngine.evaluateQuota(instagramPkg)
+        assertEquals(QuotaWarningType.TEN_MINUTES, evalDay2.activeWarning)
+        val deliveryDay2 = quotaEngine.checkAndRecordWarningDelivery(instagramPkg)
+        assertNotNull("Warning flags must be reset on new day, allowing new warnings", deliveryDay2)
+        assertEquals(QuotaWarningType.TEN_MINUTES, deliveryDay2!!.warningToDeliver)
     }
 }

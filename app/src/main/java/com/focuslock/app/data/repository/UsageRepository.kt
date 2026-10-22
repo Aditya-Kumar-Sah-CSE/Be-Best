@@ -174,7 +174,7 @@ class UsageRepositoryImpl(
                     dao.insertOrUpdateDailyUsage(
                         existing.copy(
                             usedSeconds = reconciledSeconds,
-                            isBlocked = reconciledSeconds >= existing.quotaSeconds,
+                            isBlocked = existing.isBlocked || (reconciledSeconds >= existing.quotaSeconds),
                             updatedAt = now
                         )
                     )

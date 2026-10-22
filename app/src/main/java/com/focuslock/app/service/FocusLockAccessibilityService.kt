@@ -111,6 +111,27 @@ class FocusLockAccessibilityService : AccessibilityService() {
         return lower.contains("launcher") || lower.contains("trebuchet") || lower.endsWith(".home") || lower.contains(".home.")
     }
 
+    /**
+     * Checks if a package belongs to an input method (soft keyboard) or transient system overlay.
+     * Prevents dropping foreground app tracking (e.g. typing comments or searching in Instagram).
+     */
+    private fun isInputMethodOrTransientOverlay(packageName: String): Boolean {
+        if (packageName.isBlank()) return true
+        val lower = packageName.lowercase()
+        if (lower.contains("inputmethod") || lower.contains("keyboard") ||
+            lower.contains("honeyboard") || lower.contains("gboard") ||
+            lower.contains("swiftkey") || lower.contains("autofill") ||
+            lower.contains("systemui") || packageName == "android") {
+            return true
+        }
+        return try {
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+            imm?.inputMethodList?.any { it.packageName == packageName } == true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
         val eventType = event.eventType
@@ -131,6 +152,11 @@ class FocusLockAccessibilityService : AccessibilityService() {
 
         // Maintain universal floating screen-time timer overlay across all apps (Instagram, YouTube, etc.)
         com.focuslock.app.core.overlay.FloatingTimerManager.ensureVisible(applicationContext)
+
+        // Ignore keyboard/input method windows so we don't drop tracking for active app
+        if (currentForegroundPackage != null && isInputMethodOrTransientOverlay(packageName)) {
+            return
+        }
 
         // Exclude system UI components, launchers, and FocusLock itself
         if (isExcludedPackage(packageName)) {
@@ -234,6 +260,9 @@ class FocusLockAccessibilityService : AccessibilityService() {
                     return@launch
                 }
 
+                // Check and dispatch 10-minute or 5-minute quota warnings immediately upon evaluation
+                checkAndDispatchQuotaWarnings(packageName)
+
                 // 3. App is allowed. Start active monitoring ticker if new app or cancelled
                 if (isNewApp || activeMonitoringJob?.isActive != true) {
                     activeMonitoringJob?.cancel()
@@ -253,6 +282,8 @@ class FocusLockAccessibilityService : AccessibilityService() {
                                     additionalSeconds = deltaSecs,
                                     source = "ACCESSIBILITY_ACTIVE"
                                 )
+                                // Check warnings as seconds accumulate
+                                checkAndDispatchQuotaWarnings(packageName)
                             }
 
                             // Periodically re-sync with UsageStatsManager every 15s
@@ -260,6 +291,7 @@ class FocusLockAccessibilityService : AccessibilityService() {
                             if (totalSessionSecs > 0 && totalSessionSecs % 15L == 0L) {
                                 try {
                                     FocusLockApp.instance.realUsageTracker.syncPackageUsage(packageName)
+                                    checkAndDispatchQuotaWarnings(packageName)
                                 } catch (e: Exception) {}
                             }
 
@@ -267,7 +299,7 @@ class FocusLockAccessibilityService : AccessibilityService() {
                             if (reCheck.isBlocked) {
                                 blockedPackagesCache.add(packageName)
                                 launchBlockScreen(packageName, app.displayName)
-                                delay(500L)
+                                break
                             }
                         }
                     }
@@ -276,6 +308,80 @@ class FocusLockAccessibilityService : AccessibilityService() {
                 blockedPackagesCache.remove(packageName)
                 protectedPackagesCache.remove(packageName)
             }
+        }
+    }
+
+    private fun checkAndDispatchQuotaWarnings(packageName: String) {
+        serviceScope.launch {
+            try {
+                val warningResult = FocusLockApp.instance.quotaEngine.checkAndRecordWarningDelivery(packageName)
+                if (warningResult != null && warningResult.warningToDeliver != com.focuslock.app.domain.engine.QuotaWarningType.NONE) {
+                    dispatchQuotaWarningNotification(
+                        packageName = packageName,
+                        appName = warningResult.appName,
+                        warningType = warningResult.warningToDeliver,
+                        remainingSeconds = warningResult.remainingSeconds,
+                        limitSeconds = warningResult.limitSeconds,
+                        usedSeconds = warningResult.usedSeconds
+                    )
+                }
+            } catch (e: Exception) {
+                // Ignore
+            }
+        }
+    }
+
+    private fun dispatchQuotaWarningNotification(
+        packageName: String,
+        appName: String,
+        warningType: com.focuslock.app.domain.engine.QuotaWarningType,
+        remainingSeconds: Long,
+        limitSeconds: Long,
+        usedSeconds: Long
+    ) {
+        val permissionChecker = com.focuslock.app.core.util.AndroidPermissionChecker(applicationContext)
+        if (!permissionChecker.hasNotificationPermission()) {
+            android.util.Log.w("FocusLock", "Notification permission denied; cannot display quota warning notification for $packageName")
+            // Fallback: update FloatingTimerManager to show warning alert
+            com.focuslock.app.core.overlay.FloatingTimerManager.show(applicationContext)
+            return
+        }
+
+        try {
+            val title = when (warningType) {
+                com.focuslock.app.domain.engine.QuotaWarningType.TEN_MINUTES -> "$appName: 10 Minutes Remaining"
+                com.focuslock.app.domain.engine.QuotaWarningType.FIVE_MINUTES -> "$appName: 5 Minutes Remaining"
+                else -> return
+            }
+
+            val formattedUsed = com.focuslock.app.core.util.TimeUtils.formatDurationShort(usedSeconds)
+            val formattedLimit = com.focuslock.app.core.util.TimeUtils.formatDurationShort(limitSeconds)
+            val message = "You've used $formattedUsed of your $formattedLimit daily limit. Wrap up soon!"
+
+            val intent = Intent(this, com.focuslock.app.presentation.MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val pendingIntent = android.app.PendingIntent.getActivity(
+                this,
+                packageName.hashCode() + warningType.ordinal,
+                intent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val builder = androidx.core.app.NotificationCompat.Builder(this, FocusLockApp.CHANNEL_ID_PROTECTION)
+                .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                .setContentTitle(title)
+                .setContentText(message)
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+
+            val notificationId = (packageName.hashCode() and 0x00FFFFFF) * 10 + (if (warningType == com.focuslock.app.domain.engine.QuotaWarningType.TEN_MINUTES) 1 else 2)
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+            manager?.notify(notificationId, builder.build())
+            android.util.Log.i("FocusLock", "Delivered $warningType warning notification for $packageName")
+        } catch (e: Exception) {
+            android.util.Log.e("FocusLock", "Failed to dispatch warning notification: ${e.message}", e)
         }
     }
 

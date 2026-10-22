@@ -47,12 +47,12 @@ FocusLock is designed around a **high-end 3D AMOLED Dark Aesthetic**, featuring 
 ## 🎯 Core Use Case
 
 1. **Daily Allowance Set:** User assigns a 30-minute daily allowance for Instagram, YouTube, Reddit, or Games.
-2. **Foreground Tracking:** As Instagram is used, `FocusLockAccessibilityService` tracks session time in milliseconds.
-3. **Graceful Warning:** At 25 minutes, warning alerts inform the user of 5 minutes remaining.
-4. **Hard Lock Screen:** Once 30 minutes is reached, Instagram is immediately intercepted. Displays *"You've reached your daily limit"*, the exact configured quota, tracked usage, and live local midnight reset timer directly over the restricted application without closing to launcher.
+2. **Foreground Tracking:** As Instagram is used, `FocusLockAccessibilityService` tracks foreground time without disruption from soft keyboards or input method overlays.
+3. **Timely Warnings:** Dynamic warning notifications are delivered at 10 minutes remaining (`remainingTime <= 10m`, e.g. 20:00 of 30:00 quota) and 5 minutes remaining (`remainingTime <= 5m`, e.g. 25:00 of 30:00 quota). Delivered at most once per day and persisted across process death and reboots.
+4. **Hard Lock Screen:** Once daily limit is reached (30:00), access is immediately blocked. Displays *"You've reached your daily limit"*, the configured quota, tracked usage, and live local midnight reset timer directly over the restricted application without closing to launcher. Repeated reopening attempts remain strictly blocked.
 5. **Live Countdown:** The 3D lock screen displays the exact live countdown until the next local midnight reset (`Unlocks in 08:29:42`).
-6. **Midnight Quota Reset:** At 00:00:00 of the new calendar day, quota resets automatically.
-7. **Continuous Screen Wellness Reminder:** Monotonic 30-minute screen-on timer with a 5-minute screen-off grace period (preserves exact remaining countdown if screen turns back ON < 5m; starts fresh session if screen off >= 5m; screen-off time never counts as screen-on usage). Complete with 3D animated walking/water visuals, pleasant chime, and floating timer pill.
+6. **Midnight Quota Reset:** At 00:00:00 of the new calendar day, daily quotas and warning flags reset automatically.
+7. **Continuous Screen Wellness Reminder & 5-Minute Break:** Monotonic 30-minute screen-on timer with a 5-minute screen-off grace period, paired with an authoritative 5-minute wellness break timer that continues counting down elapsed time even with the screen off or app in background, recovering accurately across device reboot.
 
 ---
 

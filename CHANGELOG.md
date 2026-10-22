@@ -4,6 +4,48 @@ All notable changes to the FocusLock application, its architectural systems, and
 
 ---
 
+## [v1.2.5] — 2026-10-23
+
+### Critical Production Bug Fixes & Reliability Enhancements
+- **Bug 1 — 10-Minute and 5-Minute Warnings System Implemented & Persisted**:
+  - **Root Cause**: Zero notification dispatch logic or database delivery tracking existed for daily quota warnings; `QuotaEngine` had only an unused 80% status without notification channels, persistence, or delivery tracking.
+  - **Database Migration (v4 -> v5)**: Added `MIGRATION_4_5` in `FocusLockDatabase` adding `warning10Triggered` and `warning5Triggered` columns to `DailyUsageEntity` and updated `UsageDao` to mark delivery atomically.
+  - **Dynamic Threshold Calculation**: Evaluates warnings based on actual configured quota:
+    - 10-Minute Warning: `remainingTime <= 600s` (e.g. 20:00 of 30:00 quota).
+    - 5-Minute Warning: `remainingTime <= 300s` (e.g. 25:00 of 30:00 quota).
+    - Block Enforced: `remainingTime <= 0s` (e.g. 30:00).
+  - **At-Most-Once Delivery Guarantee**: Warnings are delivered at most once per app per local calendar day, persisted across process deaths, service restarts, app switching, and reboots.
+  - **Startup Immediate Delivery**: If FocusLock starts when usage has already crossed a warning threshold, warnings are dispatched immediately without requiring prior thresholds.
+  - **Permission Check & Non-Silent Fallback**: Uses `NotificationManagerCompat.areNotificationsEnabled()`; if notifications are disabled/restricted, safely logs and triggers the on-screen `FloatingTimerManager` overlay alert as fallback.
+  - **Local Midnight Reset**: Automatically resets `warning10Triggered` and `warning5Triggered` flags at 12:00 AM local midnight.
+
+- **Bug 2 — Inconsistent Daily App Limit Enforcement & Instagram Keyboard Bypass Fix**:
+  - **Root Cause**:
+    1. Input Method Editors (soft keyboards like Gboard, Samsung Keyboard, SwiftKey) were not excluded from accessibility window monitoring. Typing in Instagram dispatched accessibility events with IME package names, resetting `currentForegroundPackage` to null and cancelling the active monitoring coroutine ticker. When keyboard was dismissed, Android did not fire another window transition event, allowing hours of untracked usage.
+    2. Accessibility monitoring loop did not exit immediately upon blocking an app, causing redundant loop evaluations.
+    3. `RealUsageTracker.reconcileWithAndroidUsageStats` compared against stale `existing.quotaSeconds` instead of updated limits and could reset `isBlocked`.
+  - **IME Exclusion Filter**: Added `isInputMethodOrTransientOverlay` recognizing IME packages, prevent keyboard appearances from interrupting target app monitoring tickers.
+  - **Immediate Loop Termination**: Added immediate `break` in `FocusLockAccessibilityService` foreground monitoring loop as soon as blocking screen is triggered.
+  - **Authoritative Quota & Block State Preservation**: Reconciliations now preserve `isBlocked = existing.isBlocked || (reconciledSeconds >= quota)` and retain configured quota.
+  - **Persistent Blocking Enforcement**: Repeated launch attempts and app switches re-check persisted Room database state and enforce blocking screen immediately until midnight reset.
+
+- **Bug 3 — 5-Minute Break Timer Across Screen-Off & Background Execution**:
+  - **Root Cause**:
+    1. `BreakReminderHelper.onScreenOff()` and `expireSessionIfGracePeriodOver()` explicitly deleted `KEY_BREAK_ACTIVE` and `KEY_BREAK_START_ELAPSED` from SharedPreferences when screen turned off.
+    2. `BreakAlertActivity.kt` relied on an in-memory Compose `LaunchedEffect` decrementing an integer instead of deriving remaining time from monotonic deadlines.
+    3. No AlarmManager or background mechanism existed to fire completion when the screen was off or device was in deep sleep.
+  - **Persistent Monotonic & Wall-Clock Deadlines**: Added `KEY_BREAK_START_WALL`, `KEY_BREAK_DEADLINE_WALL`, `KEY_BREAK_BOOT_SESSION_ID`, and `KEY_BREAK_COMPLETED` in `BreakReminderHelper`.
+  - **Authoritative Elapsed Time Countdown**: `getRemainingBreakSeconds()` derives remaining time from `clock.elapsedRealtime()` / `currentTimeMillis()`. Screen-off time continues the break countdown accurately.
+  - **AlarmManager Completion Scheduling**: Added `scheduleBreakCompletionAlarm()` using `AlarmManager.RTC_WAKEUP` / `setExactAndAllowWhileIdle()` targeting `BreakReminderActionReceiver.ACTION_BREAK_COMPLETE`.
+  - **Reboot Recovery**: `onDeviceReboot()` validates wall-clock difference: if elapsed wall time < 5 minutes, monotonic timestamps and alarm are restored; if >= 5 minutes, break completes immediately.
+  - **Idempotent Completion**: `completeBreak()` completes atomically, cancels pending alarms, and posts `Break Complete! 🎉` notification exactly once.
+  - **Strict Decoupling**: 5-minute break timer is completely decoupled from 30-minute continuous screen wellness timer. Wellness session reset does not erase active breaks.
+
+- **Test Suite**:
+  - Full test suite passing (121+ tests including boundary conditions, at-most-once delivery, keyboard IME overlay safety, repeated launch prevention, break screen-off countdown, and reboot recovery).
+
+---
+
 ## [v1.2.4] — 2026-10-22
 
 ### Critical Fix

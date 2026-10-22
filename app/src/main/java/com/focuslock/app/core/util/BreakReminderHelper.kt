@@ -54,6 +54,10 @@ object BreakReminderHelper {
     const val KEY_ALERT_TRIGGERED_FOR_SESSION = "continuous_alert_triggered_for_session"
     const val KEY_BREAK_ACTIVE = "continuous_break_active"
     const val KEY_BREAK_START_ELAPSED = "continuous_break_start_elapsed"
+    const val KEY_BREAK_START_WALL = "continuous_break_start_wall"
+    const val KEY_BREAK_DEADLINE_WALL = "continuous_break_deadline_wall"
+    const val KEY_BREAK_BOOT_SESSION_ID = "continuous_break_boot_session_id"
+    const val KEY_BREAK_COMPLETED = "continuous_break_completed"
 
     const val THIRTY_MINUTES_MILLIS = 30 * 60 * 1000L // 30 minutes
     const val FIVE_MINUTES_MILLIS = 5 * 60 * 1000L   // 5 minutes (Grace period, break duration, snooze)
@@ -216,18 +220,38 @@ object BreakReminderHelper {
                 .apply()
         } else {
             // Start fresh 30-minute session
-            prefs.edit()
+            val edit = prefs.edit()
                 .putLong(KEY_ACCUMULATED_SCREEN_ON_MS, 0L)
                 .putLong(KEY_SESSION_START_ELAPSED, nowElapsed)
                 .putBoolean(KEY_IS_SCREEN_ON, true)
                 .remove(KEY_SCREEN_OFF_ELAPSED)
                 .remove(KEY_SCREEN_OFF_WALL_TIME)
                 .remove(KEY_SNOOZE_UNTIL_ELAPSED)
-                .remove(KEY_BREAK_ACTIVE)
-                .remove(KEY_BREAK_START_ELAPSED)
                 .putBoolean(KEY_ALERT_TRIGGERED_FOR_SESSION, false)
                 .putLong(KEY_BOOT_SESSION_ID, currentBootId)
-                .apply()
+
+            // Do not erase an active break timer if the user started one
+            if (!prefs.getBoolean(KEY_BREAK_ACTIVE, false)) {
+                edit.remove(KEY_BREAK_ACTIVE)
+                    .remove(KEY_BREAK_START_ELAPSED)
+                    .remove(KEY_BREAK_START_WALL)
+                    .remove(KEY_BREAK_DEADLINE_WALL)
+                    .remove(KEY_BREAK_BOOT_SESSION_ID)
+            }
+            edit.apply()
+        }
+
+        // Check if an active break completed while the screen was off
+        if (prefs.getBoolean(KEY_BREAK_ACTIVE, false)) {
+            val breakStart = prefs.getLong(KEY_BREAK_START_ELAPSED, 0L)
+            val breakWall = prefs.getLong(KEY_BREAK_START_WALL, 0L)
+            val breakBootId = prefs.getLong(KEY_BREAK_BOOT_SESSION_ID, 0L)
+            val isSameBreakBoot = isSameBootSession(nowElapsed, breakStart, breakBootId, currentBootId)
+            val breakElapsed = if (isSameBreakBoot) (nowElapsed - breakStart) else (nowWall - breakWall)
+
+            if (breakElapsed >= FIVE_MINUTES_MILLIS) {
+                completeBreak(context)
+            }
         }
 
         context?.let { ctx ->
@@ -243,6 +267,7 @@ object BreakReminderHelper {
      * 2. Records screen-off timestamps (monotonic and wall-clock).
      * 3. Starts 5-minute grace period and schedules delayed session expiration.
      * 4. Stops any playing alarm sound.
+     * Note: Does NOT erase active 5-minute break timer! Break continues counting down with screen off.
      */
     fun onScreenOff(context: Context? = null) {
         val prefs = getPrefs(context)
@@ -269,8 +294,6 @@ object BreakReminderHelper {
             .putLong(KEY_SCREEN_OFF_WALL_TIME, nowWall)
             .putBoolean(KEY_IS_SCREEN_ON, false)
             .putLong(KEY_BOOT_SESSION_ID, currentBootId)
-            .remove(KEY_BREAK_ACTIVE)
-            .remove(KEY_BREAK_START_ELAPSED)
             .apply()
 
         // Start 5-minute grace period reset task
@@ -290,6 +313,7 @@ object BreakReminderHelper {
 
     /**
      * Expire session if screen remained OFF for 5 minutes or longer.
+     * Note: Only expires continuous screen session, does not cancel active break countdown!
      */
     fun expireSessionIfGracePeriodOver(context: Context? = null) {
         val prefs = getPrefs(context)
@@ -306,8 +330,6 @@ object BreakReminderHelper {
                 .remove(KEY_SCREEN_OFF_ELAPSED)
                 .remove(KEY_SCREEN_OFF_WALL_TIME)
                 .remove(KEY_SNOOZE_UNTIL_ELAPSED)
-                .remove(KEY_BREAK_ACTIVE)
-                .remove(KEY_BREAK_START_ELAPSED)
                 .putBoolean(KEY_ALERT_TRIGGERED_FOR_SESSION, false)
                 .apply()
 
@@ -320,8 +342,9 @@ object BreakReminderHelper {
     }
 
     /**
-     * Handles device reboot. Validates whether reboot occurred during a valid grace period.
-     * If wall-clock elapsed time < 5 minutes, restores grace period state; otherwise resets session.
+     * Handles device reboot.
+     * 1. Restores active 5-minute break if wall-clock elapsed time < 5 minutes, else completes break.
+     * 2. Validates whether reboot occurred during a valid continuous screen-off grace period (<5 min).
      */
     fun onDeviceReboot(context: Context? = null) {
         cancelPendingResetTask()
@@ -331,6 +354,30 @@ object BreakReminderHelper {
         val accumulated = prefs.getLong(KEY_ACCUMULATED_SCREEN_ON_MS, 0L)
         val nowWall = clock.currentTimeMillis()
 
+        // 1. Recover active 5-minute break across device reboot
+        if (prefs.getBoolean(KEY_BREAK_ACTIVE, false)) {
+            val breakStartWall = prefs.getLong(KEY_BREAK_START_WALL, 0L)
+            if (breakStartWall > 0L) {
+                val breakElapsed = nowWall - breakStartWall
+                if (breakElapsed >= FIVE_MINUTES_MILLIS) {
+                    completeBreak(context)
+                } else {
+                    // Break still valid: restore monotonic elapsed start for current boot session
+                    val currentBootId = getBootSessionId()
+                    val newElapsedStart = clock.elapsedRealtime() - breakElapsed
+                    prefs.edit()
+                        .putLong(KEY_BREAK_BOOT_SESSION_ID, currentBootId)
+                        .putLong(KEY_BREAK_START_ELAPSED, newElapsedStart)
+                        .apply()
+                    context?.let { ctx ->
+                        val deadlineWall = prefs.getLong(KEY_BREAK_DEADLINE_WALL, breakStartWall + FIVE_MINUTES_MILLIS)
+                        scheduleBreakCompletionAlarm(ctx, deadlineWall)
+                    }
+                }
+            }
+        }
+
+        // 2. Continuous 30m screen-off grace period handling
         if (!isScreenOn && screenOffWall > 0L && accumulated > 0L) {
             val wallDiff = nowWall - screenOffWall
             if (wallDiff in 0L until FIVE_MINUTES_MILLIS) {
@@ -351,6 +398,7 @@ object BreakReminderHelper {
 
     /**
      * Resets the 30-minute continuous session to 0.
+     * Does NOT cancel an active 5-minute break timer.
      */
     fun resetSession(context: Context? = null) {
         cancelPendingResetTask()
@@ -364,8 +412,6 @@ object BreakReminderHelper {
             .remove(KEY_SCREEN_OFF_ELAPSED)
             .remove(KEY_SCREEN_OFF_WALL_TIME)
             .remove(KEY_SNOOZE_UNTIL_ELAPSED)
-            .remove(KEY_BREAK_ACTIVE)
-            .remove(KEY_BREAK_START_ELAPSED)
             .putBoolean(KEY_ALERT_TRIGGERED_FOR_SESSION, false)
             .putLong(KEY_BOOT_SESSION_ID, currentBootId)
             .apply()
@@ -387,18 +433,28 @@ object BreakReminderHelper {
 
     /**
      * Starts a 5-minute wellness break.
-     * Stops the alarm sound and records active break state.
+     * Stops the alarm sound, records start time and deadline, and schedules alarm.
      */
     fun startBreak(context: Context? = null) {
         cancelPendingResetTask()
         val nowElapsed = clock.elapsedRealtime()
+        val nowWall = clock.currentTimeMillis()
+        val currentBootId = getBootSessionId()
+        val deadlineWall = nowWall + FIVE_MINUTES_MILLIS
+
         getPrefs(context).edit()
             .putBoolean(KEY_BREAK_ACTIVE, true)
             .putLong(KEY_BREAK_START_ELAPSED, nowElapsed)
+            .putLong(KEY_BREAK_START_WALL, nowWall)
+            .putLong(KEY_BREAK_DEADLINE_WALL, deadlineWall)
+            .putLong(KEY_BREAK_BOOT_SESSION_ID, currentBootId)
+            .putBoolean(KEY_BREAK_COMPLETED, false)
             .remove(KEY_SNOOZE_UNTIL_ELAPSED)
             .apply()
 
         context?.let { ctx ->
+            scheduleBreakCompletionAlarm(ctx, deadlineWall)
+
             try {
                 WellnessSoundManager.getInstance(ctx).stop()
             } catch (e: Throwable) {}
@@ -416,18 +472,142 @@ object BreakReminderHelper {
     fun isBreakActive(context: Context? = null): Boolean {
         val prefs = getPrefs(context)
         if (!prefs.getBoolean(KEY_BREAK_ACTIVE, false)) return false
-        val start = prefs.getLong(KEY_BREAK_START_ELAPSED, 0L)
-        val now = clock.elapsedRealtime()
-        return (now - start) in 0L until FIVE_MINUTES_MILLIS
+        val startElapsed = prefs.getLong(KEY_BREAK_START_ELAPSED, 0L)
+        val startWall = prefs.getLong(KEY_BREAK_START_WALL, 0L)
+        val bootId = prefs.getLong(KEY_BREAK_BOOT_SESSION_ID, 0L)
+        val currentBootId = getBootSessionId()
+        val nowElapsed = clock.elapsedRealtime()
+        val nowWall = clock.currentTimeMillis()
+
+        val isSameBoot = isSameBootSession(nowElapsed, startElapsed, bootId, currentBootId)
+        val elapsedMs = if (isSameBoot && startElapsed > 0L) {
+            nowElapsed - startElapsed
+        } else if (startWall > 0L) {
+            nowWall - startWall
+        } else {
+            0L
+        }
+
+        return elapsedMs in 0L until FIVE_MINUTES_MILLIS
+    }
+
+    fun isBreakCompleted(context: Context? = null): Boolean {
+        return getPrefs(context).getBoolean(KEY_BREAK_COMPLETED, false)
     }
 
     fun getRemainingBreakSeconds(context: Context? = null): Long {
         val prefs = getPrefs(context)
         if (!prefs.getBoolean(KEY_BREAK_ACTIVE, false)) return 0L
-        val start = prefs.getLong(KEY_BREAK_START_ELAPSED, 0L)
-        val now = clock.elapsedRealtime()
-        val elapsed = (now - start) / 1000L
-        return (300L - elapsed).coerceAtLeast(0L)
+        val startElapsed = prefs.getLong(KEY_BREAK_START_ELAPSED, 0L)
+        val startWall = prefs.getLong(KEY_BREAK_START_WALL, 0L)
+        val bootId = prefs.getLong(KEY_BREAK_BOOT_SESSION_ID, 0L)
+        val currentBootId = getBootSessionId()
+        val nowElapsed = clock.elapsedRealtime()
+        val nowWall = clock.currentTimeMillis()
+
+        val isSameBoot = isSameBootSession(nowElapsed, startElapsed, bootId, currentBootId)
+        val elapsedMs = if (isSameBoot && startElapsed > 0L) {
+            nowElapsed - startElapsed
+        } else if (startWall > 0L) {
+            nowWall - startWall
+        } else {
+            0L
+        }
+
+        val remainingMs = FIVE_MINUTES_MILLIS - elapsedMs
+        return (remainingMs / 1000L).coerceAtLeast(0L)
+    }
+
+    fun completeBreak(context: Context? = null) {
+        val prefs = getPrefs(context)
+        val wasActive = prefs.getBoolean(KEY_BREAK_ACTIVE, false)
+        val alreadyCompleted = prefs.getBoolean(KEY_BREAK_COMPLETED, false)
+        if (!wasActive && alreadyCompleted) return
+
+        prefs.edit()
+            .putBoolean(KEY_BREAK_ACTIVE, false)
+            .putBoolean(KEY_BREAK_COMPLETED, true)
+            .remove(KEY_BREAK_START_ELAPSED)
+            .remove(KEY_BREAK_START_WALL)
+            .remove(KEY_BREAK_DEADLINE_WALL)
+            .remove(KEY_BREAK_BOOT_SESSION_ID)
+            .apply()
+
+        context?.let { ctx ->
+            cancelBreakAlarm(ctx)
+            dismissReminderNotification(ctx)
+            showBreakCompletedNotification(ctx)
+            try {
+                WellnessSoundManager.getInstance(ctx).stop()
+            } catch (e: Throwable) {}
+        }
+
+        resetSession(context)
+    }
+
+    fun scheduleBreakCompletionAlarm(context: Context, deadlineWallMs: Long) {
+        try {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? android.app.AlarmManager ?: return
+            val intent = Intent(context, BreakReminderActionReceiver::class.java).apply {
+                action = BreakReminderActionReceiver.ACTION_BREAK_COMPLETE
+            }
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                1005,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    android.app.AlarmManager.RTC_WAKEUP,
+                    deadlineWallMs,
+                    pendingIntent
+                )
+            } else {
+                alarmManager.setExact(
+                    android.app.AlarmManager.RTC_WAKEUP,
+                    deadlineWallMs,
+                    pendingIntent
+                )
+            }
+        } catch (e: Throwable) {
+            try {
+                val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? android.app.AlarmManager ?: return
+                val intent = Intent(context, BreakReminderActionReceiver::class.java).apply {
+                    action = BreakReminderActionReceiver.ACTION_BREAK_COMPLETE
+                }
+                val pendingIntent = PendingIntent.getBroadcast(
+                    context,
+                    1005,
+                    intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                alarmManager.set(
+                    android.app.AlarmManager.RTC_WAKEUP,
+                    deadlineWallMs,
+                    pendingIntent
+                )
+            } catch (e2: Throwable) {}
+        }
+    }
+
+    fun cancelBreakAlarm(context: Context) {
+        try {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? android.app.AlarmManager ?: return
+            val intent = Intent(context, BreakReminderActionReceiver::class.java).apply {
+                action = BreakReminderActionReceiver.ACTION_BREAK_COMPLETE
+            }
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                1005,
+                intent,
+                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+            )
+            if (pendingIntent != null) {
+                alarmManager.cancel(pendingIntent)
+                pendingIntent.cancel()
+            }
+        } catch (e: Throwable) {}
     }
 
     /**

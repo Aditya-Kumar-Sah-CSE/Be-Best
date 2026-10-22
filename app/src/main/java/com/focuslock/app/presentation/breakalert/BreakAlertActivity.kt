@@ -106,9 +106,7 @@ class BreakAlertActivity : ComponentActivity() {
                         BreakReminderHelper.startBreak(this@BreakAlertActivity)
                     },
                     onBreakCompleted = {
-                        BreakReminderHelper.resetSession(this@BreakAlertActivity)
-                        BreakReminderHelper.showBreakCompletedNotification(this@BreakAlertActivity)
-                        BreakReminderHelper.dismissReminderNotification(this@BreakAlertActivity)
+                        BreakReminderHelper.completeBreak(this@BreakAlertActivity)
                     },
                     onRemindIn5Minutes = {
                         BreakReminderHelper.snooze(this@BreakAlertActivity, 5L)
@@ -171,29 +169,54 @@ fun BreakAlertScreen(
     val preferences = remember { WellnessPreferences.getInstance(context) }
     val customVideoUriString = preferences.customVideoUriString
 
-    val initialBreakSeconds = remember {
-        if (BreakReminderHelper.isBreakActive(context)) {
-            BreakReminderHelper.getRemainingBreakSeconds(context)
-        } else {
-            300L
+    val isOriginallyActive = remember { BreakReminderHelper.isBreakActive(context) }
+    var isBreakInProgress by remember {
+        mutableStateOf(autoStart || isOriginallyActive)
+    }
+    var remainingBreakSeconds by remember {
+        mutableLongStateOf(
+            if (isOriginallyActive) BreakReminderHelper.getRemainingBreakSeconds(context) else 300L
+        )
+    }
+    var isBreakCompleted by remember {
+        mutableStateOf(BreakReminderHelper.isBreakCompleted(context))
+    }
+
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                if (BreakReminderHelper.isBreakCompleted(context)) {
+                    isBreakCompleted = true
+                    isBreakInProgress = false
+                    remainingBreakSeconds = 0L
+                } else if (BreakReminderHelper.isBreakActive(context)) {
+                    isBreakInProgress = true
+                    remainingBreakSeconds = BreakReminderHelper.getRemainingBreakSeconds(context)
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
 
-    var remainingBreakSeconds by remember { mutableLongStateOf(initialBreakSeconds) }
-    var isBreakInProgress by remember {
-        mutableStateOf(autoStart || BreakReminderHelper.isBreakActive(context))
-    }
-    var isBreakCompleted by remember { mutableStateOf(false) }
-
     LaunchedEffect(isBreakInProgress) {
-        while (isBreakInProgress && remainingBreakSeconds > 0) {
-            delay(1000L)
-            remainingBreakSeconds--
-            if (remainingBreakSeconds <= 0L) {
+        if (!isBreakInProgress) return@LaunchedEffect
+        if (!BreakReminderHelper.isBreakActive(context) && !BreakReminderHelper.isBreakCompleted(context)) {
+            onStartBreak()
+        }
+        while (isBreakInProgress) {
+            val remaining = BreakReminderHelper.getRemainingBreakSeconds(context)
+            remainingBreakSeconds = remaining
+            if (remaining <= 0L) {
                 isBreakCompleted = true
                 isBreakInProgress = false
                 onBreakCompleted()
+                break
             }
+            delay(1000L)
         }
     }
 
@@ -368,9 +391,9 @@ fun BreakAlertScreen(
                     // Button 1: "Take a 5-Minute Break"
                     Button(
                         onClick = {
-                            isBreakInProgress = true
-                            remainingBreakSeconds = 300L
                             onStartBreak()
+                            isBreakInProgress = true
+                            remainingBreakSeconds = BreakReminderHelper.getRemainingBreakSeconds(context)
                         },
                         modifier = Modifier
                             .fillMaxWidth()

@@ -17,6 +17,12 @@ enum class ProtectionState {
     BLOCKED_UNTIL_RESET
 }
 
+enum class QuotaWarningType {
+    NONE,
+    TEN_MINUTES,
+    FIVE_MINUTES
+}
+
 enum class EnforcementState {
     UNDER_LIMIT,
     LIMIT_REACHED,
@@ -25,6 +31,14 @@ enum class EnforcementState {
 }
 
 typealias QuotaStatus = ProtectionState
+
+data class WarningCheckResult(
+    val warningToDeliver: QuotaWarningType,
+    val remainingSeconds: Long,
+    val limitSeconds: Long,
+    val usedSeconds: Long,
+    val appName: String
+)
 
 data class AppQuotaEvaluation(
     val packageName: String,
@@ -37,6 +51,9 @@ data class AppQuotaEvaluation(
     val remainingEmergencySeconds: Long = 0L,
     val emergencyUsedToday: Boolean = false,
     val emergencyExpiresAtMillis: Long = 0L,
+    val warning10Triggered: Boolean = false,
+    val warning5Triggered: Boolean = false,
+    val activeWarning: QuotaWarningType = QuotaWarningType.NONE,
     val blockedReason: String? = null,
     val permissionsActive: Boolean = true,
     val enforcementState: EnforcementState = when (status) {
@@ -127,10 +144,17 @@ class QuotaEngine(
 
         // Remaining daily allowance = max(0, dailyLimit - usedToday)
         val remainingSeconds = (limitSeconds - usedSeconds).coerceAtLeast(0L)
-        val isExhausted = (usedSeconds >= limitSeconds && limitSeconds > 0L) || (limitSeconds == 0L)
+        val isExhausted = usageEntity?.isBlocked == true || (usedSeconds >= limitSeconds && limitSeconds > 0L) || (limitSeconds == 0L)
 
         if (!isExhausted) {
-            val status = if (limitSeconds > 0L && usedSeconds >= (limitSeconds * 0.8)) {
+            val w10 = usageEntity?.warning10Triggered == true
+            val w5 = usageEntity?.warning5Triggered == true
+            val activeWarning = when {
+                limitSeconds > 300L && remainingSeconds <= 300L && usedSeconds > 0L -> QuotaWarningType.FIVE_MINUTES
+                limitSeconds > 600L && remainingSeconds <= 600L && usedSeconds > 0L -> QuotaWarningType.TEN_MINUTES
+                else -> QuotaWarningType.NONE
+            }
+            val status = if (activeWarning != QuotaWarningType.NONE || (limitSeconds > 0L && usedSeconds >= (limitSeconds * 0.8))) {
                 ProtectionState.WARNING
             } else {
                 ProtectionState.ALLOWED
@@ -144,6 +168,9 @@ class QuotaEngine(
                 isBlocked = false,
                 canUseEmergency = false,
                 emergencyUsedToday = usageEntity?.emergencyUsed == true,
+                warning10Triggered = w10,
+                warning5Triggered = w5,
+                activeWarning = activeWarning,
                 blockedReason = null,
                 permissionsActive = permsActive
             )
@@ -324,10 +351,11 @@ class QuotaEngine(
             )
         } else {
             val newTotal = existing.usedSeconds + additionalSeconds
-            val isBlocked = newTotal >= existing.quotaSeconds
+            val isBlocked = existing.isBlocked || (newTotal >= quotaSeconds)
             usageDao.insertOrUpdateDailyUsage(
                 existing.copy(
                     usedSeconds = newTotal,
+                    quotaSeconds = quotaSeconds,
                     isBlocked = isBlocked,
                     updatedAt = now
                 )
@@ -336,8 +364,77 @@ class QuotaEngine(
     }
 
     /**
+     * Checks if a 10-minute or 5-minute warning should be dispatched for this app.
+     * If a warning threshold is crossed and has not yet been delivered today,
+     * updates the database delivery flag and returns a WarningCheckResult.
+     * Guaranteed at most once per app per local calendar day.
+     */
+    suspend fun checkAndRecordWarningDelivery(packageName: String): WarningCheckResult? {
+        val app = protectedAppDao.getAppByPackageName(packageName) ?: return null
+        if (!app.enabled) return null
+
+        val limitSeconds = app.dailyLimitSeconds.coerceAtLeast(0L)
+        if (limitSeconds == 0L) return null
+
+        val todayDate = TimeUtils.formatDate(timeProvider.getTodayLocalDate())
+        val tzId = timeProvider.getZoneId().id
+        val now = timeProvider.currentTimeMillis()
+
+        var usage = usageDao.getDailyUsageForApp(packageName, todayDate)
+        if (usage == null) {
+            usage = DailyUsageEntity(
+                packageName = packageName,
+                localDate = todayDate,
+                timezoneId = tzId,
+                usedSeconds = 0L,
+                quotaSeconds = limitSeconds,
+                isBlocked = false,
+                updatedAt = now
+            )
+            usageDao.insertOrUpdateDailyUsage(usage)
+        }
+
+        val usedSeconds = usage.usedSeconds.coerceAtLeast(0L)
+        val remainingSeconds = (limitSeconds - usedSeconds).coerceAtLeast(0L)
+
+        // If quota is exhausted (<= 0), limit enforcement handles it, no warning
+        if (remainingSeconds <= 0L) return null
+
+        // 5-Minute Warning: remaining <= 5 min (300s), limit > 5 min (300s), used > 0
+        if (limitSeconds > 300L && remainingSeconds <= 300L && usedSeconds > 0L) {
+            if (!usage.warning5Triggered) {
+                usageDao.markWarning5Triggered(packageName, todayDate, now)
+                if (!usage.warning10Triggered && limitSeconds > 600L) {
+                    usageDao.markWarning10Triggered(packageName, todayDate, now)
+                }
+                return WarningCheckResult(
+                    warningToDeliver = QuotaWarningType.FIVE_MINUTES,
+                    remainingSeconds = remainingSeconds,
+                    limitSeconds = limitSeconds,
+                    usedSeconds = usedSeconds,
+                    appName = app.displayName
+                )
+            }
+        } else if (limitSeconds > 600L && remainingSeconds <= 600L && usedSeconds > 0L) {
+            // 10-Minute Warning: remaining <= 10 min (600s), limit > 10 min (600s), used > 0
+            if (!usage.warning10Triggered) {
+                usageDao.markWarning10Triggered(packageName, todayDate, now)
+                return WarningCheckResult(
+                    warningToDeliver = QuotaWarningType.TEN_MINUTES,
+                    remainingSeconds = remainingSeconds,
+                    limitSeconds = limitSeconds,
+                    usedSeconds = usedSeconds,
+                    appName = app.displayName
+                )
+            }
+        }
+
+        return null
+    }
+
+    /**
      * Checks whether calendar day has transitioned and resets quotas for all protected apps.
-     * Restores fresh emergency eligibility for the new local calendar date.
+     * Restores fresh emergency eligibility and warning state for the new local calendar date.
      */
     suspend fun checkAndPerformMidnightReset(): Boolean {
         val today = TimeUtils.formatDate(timeProvider.getTodayLocalDate())
@@ -356,6 +453,8 @@ class QuotaEngine(
                         usedSeconds = 0L,
                         quotaSeconds = app.dailyLimitSeconds,
                         isBlocked = false,
+                        warning10Triggered = false,
+                        warning5Triggered = false,
                         emergencyUsed = false,
                         emergencyStartedAt = 0L,
                         emergencyExpiresAt = 0L,

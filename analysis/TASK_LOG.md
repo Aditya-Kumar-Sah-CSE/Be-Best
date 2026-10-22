@@ -4,7 +4,44 @@ This log tracks technical tasks, bug fixes, refactorings, and intelligence setup
 
 ---
 
-## Task Log
+### [TASK-007] Critical Bug Fix: Warnings System, Reliable Daily Limit Enforcement, and Screen-Off Break Countdown
+- **Date**: 2026-10-23
+- **Objective**: Fix 3 production-critical bugs:
+  1. 10-minute and 5-minute warnings do not appear.
+  2. Daily app limit is not enforced reliably (hours of use allowed, reopening Instagram restores access).
+  3. 5-minute break timer stops when the screen turns off.
+- **Root Causes & Solutions**:
+  1. **Bug 1 (Warnings)**:
+     - *Cause*: No warning notification dispatcher or DB persistence existed.
+     - *Fix*: Added `MIGRATION_4_5` altering `daily_usage` with `warning10Triggered` and `warning5Triggered`. Implemented dynamic warning threshold checks in `QuotaEngine` (`remainingTime <= 10m` and `<= 5m`) with at-most-once delivery guarantee per local calendar day, immediate evaluation on startup, and `NotificationManagerCompat` permission checking with floating overlay alert fallback.
+  2. **Bug 2 (Limit Enforcement & Keyboard Bypass)**:
+     - *Cause*: Input Method Editors (soft keyboards) were not excluded, causing typing in Instagram to reset `currentForegroundPackage` and kill the monitoring ticker. Furthermore, monitoring loop didn't break on block, and `reconcileWithAndroidUsageStats` compared against stale limits.
+     - *Fix*: Added `isInputMethodOrTransientOverlay` recognizing IME packages. Added immediate `break` in accessibility loop upon blocking. Reconciliations preserve `isBlocked = existing.isBlocked || (reconciledSeconds >= quota)`.
+  3. **Bug 3 (5-Minute Break Across Screen Off)**:
+     - *Cause*: `BreakReminderHelper.onScreenOff()` and `expireSessionIfGracePeriodOver()` deleted `KEY_BREAK_ACTIVE` and `KEY_BREAK_START_ELAPSED` from SharedPreferences. `BreakAlertActivity.kt` decremented an in-memory integer.
+     - *Fix*: Added persistent monotonic & wall-clock deadline timestamps, derived remaining time from elapsed monotonic time, scheduled `AlarmManager.RTC_WAKEUP` exact completion alarm, restored break across device reboot using wall diff, and made `completeBreak()` idempotent firing notification once. Decoupled break timer from 30m continuous screen wellness timer.
+- **Files Modified**:
+  - `app/src/main/AndroidManifest.xml`
+  - `app/src/main/java/com/focuslock/app/core/usage/RealUsageTracker.kt`
+  - `app/src/main/java/com/focuslock/app/core/util/AndroidPermissionChecker.kt`
+  - `app/src/main/java/com/focuslock/app/core/util/BreakReminderActionReceiver.kt`
+  - `app/src/main/java/com/focuslock/app/core/util/BreakReminderHelper.kt`
+  - `app/src/main/java/com/focuslock/app/data/local/FocusLockDatabase.kt`
+  - `app/src/main/java/com/focuslock/app/data/local/dao/UsageDao.kt`
+  - `app/src/main/java/com/focuslock/app/data/local/entity/DailyUsageEntity.kt`
+  - `app/src/main/java/com/focuslock/app/data/repository/UsageRepository.kt`
+  - `app/src/main/java/com/focuslock/app/domain/engine/QuotaEngine.kt`
+  - `app/src/main/java/com/focuslock/app/presentation/breakalert/BreakAlertActivity.kt`
+  - `app/src/main/java/com/focuslock/app/service/FocusLockAccessibilityService.kt`
+  - `app/src/test/java/com/focuslock/app/core/util/BreakReminderTest.kt`
+  - `app/src/test/java/com/focuslock/app/domain/engine/QuotaEngineTest.kt`
+  - `app/src/test/java/com/focuslock/app/service/ExternalAppBlockingTest.kt`
+- **Verification**:
+  - `testDebugUnitTest` passed with 0 errors (121+ tests passed in 1m 1s).
+  - `assembleDebug` passed with 0 errors (BUILD SUCCESSFUL in 52s).
+- **Outcome**: Warnings deliver dynamically and reliably, exhausted apps remain strictly blocked across re-openings, and 5-minute break timer continues accurately across screen off and backgrounding.
+
+---
 
 ### [TASK-006] Fix Instagram Close-Without-Redirect Bug & Enforcement Display
 - **Date**: 2026-10-22

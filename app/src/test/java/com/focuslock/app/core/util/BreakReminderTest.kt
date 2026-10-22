@@ -478,4 +478,110 @@ class BreakReminderTest {
         assertEquals(0L, BreakReminderHelper.getRemainingBreakSeconds())
         assertFalse(BreakReminderHelper.isBreakActive())
     }
+
+    @Test
+    fun testBreakContinuesAcrossScreenOff_RemainingTimeAccurateOnScreenOn() {
+        // User reaches 30 minutes continuous usage and starts a 5-minute break
+        BreakReminderHelper.onScreenOn()
+        testClock.advance(30 * 60 * 1000L)
+        BreakReminderHelper.startBreak()
+        assertTrue(BreakReminderHelper.isBreakActive())
+        assertEquals(300L, BreakReminderHelper.getRemainingBreakSeconds())
+
+        // User locks phone / screen turns off after 1 minute (60s)
+        testClock.advance(60 * 1000L)
+        BreakReminderHelper.onScreenOff()
+
+        // Break MUST NOT be cancelled by screen off!
+        assertTrue("Break must remain active while screen is off", BreakReminderHelper.isBreakActive())
+
+        // Screen remains off for 2 minutes (120s)
+        testClock.advance(120 * 1000L)
+
+        // User turns screen back on after total 3 minutes (180s) elapsed since break started
+        BreakReminderHelper.onScreenOn()
+
+        // MUST be active with ~2 minutes (120s) remaining, NOT reset back to 5 minutes!
+        assertTrue(BreakReminderHelper.isBreakActive())
+        assertEquals("Remaining time must reflect 120s after 3m of break elapsed", 120L, BreakReminderHelper.getRemainingBreakSeconds())
+    }
+
+    @Test
+    fun testBreakCompletesWhileScreenOff_MarksCompletedOnScreenOn() {
+        // Start 5-minute break
+        BreakReminderHelper.onScreenOn()
+        testClock.advance(30 * 60 * 1000L)
+        BreakReminderHelper.startBreak()
+
+        // Screen turns off at 1m into break
+        testClock.advance(60 * 1000L)
+        BreakReminderHelper.onScreenOff()
+
+        // Screen remains off for 5 more minutes (total 6m elapsed > 5m break duration)
+        testClock.advance(5 * 60 * 1000L)
+
+        // User turns screen on after deadline
+        BreakReminderHelper.onScreenOn()
+
+        // Break must be completed and marked completed
+        assertFalse("Break must no longer be active", BreakReminderHelper.isBreakActive())
+        assertEquals(0L, BreakReminderHelper.getRemainingBreakSeconds())
+        assertTrue("Break must be marked completed", BreakReminderHelper.isBreakCompleted())
+    }
+
+    @Test
+    fun testBreakRecoveryAcrossReboot() {
+        // Start 5-minute break
+        BreakReminderHelper.onScreenOn()
+        testClock.advance(30 * 60 * 1000L)
+        BreakReminderHelper.startBreak()
+
+        // 2 minutes into break, device reboots (elapsed resets, wall clock advances 2m)
+        testClock.reboot(newElapsed = 5_000L, wallDurationMs = 120_000L)
+        BreakReminderHelper.onDeviceReboot()
+
+        // Break should be restored using wall-clock diff
+        assertTrue("Active break must be restored across reboot", BreakReminderHelper.isBreakActive())
+        assertEquals("Remaining break time must be ~180s (3m) after 2m reboot", 180L, BreakReminderHelper.getRemainingBreakSeconds())
+
+        // Another reboot 4 minutes later (total 6m > 5m)
+        testClock.reboot(newElapsed = 5_000L, wallDurationMs = 240_000L)
+        BreakReminderHelper.onDeviceReboot()
+
+        // Break must now be completed
+        assertFalse("Break past deadline must not remain active after reboot", BreakReminderHelper.isBreakActive())
+        assertTrue("Break must be marked completed after deadline reboot", BreakReminderHelper.isBreakCompleted())
+    }
+
+    @Test
+    fun testBreakCompletion_IsIdempotent_CompletesOnce() {
+        BreakReminderHelper.startBreak()
+        assertFalse(BreakReminderHelper.isBreakCompleted())
+
+        // First completion
+        BreakReminderHelper.completeBreak()
+        assertTrue(BreakReminderHelper.isBreakCompleted())
+        assertFalse(BreakReminderHelper.isBreakActive())
+
+        // Second completion call must be a safe no-op
+        BreakReminderHelper.completeBreak()
+        assertTrue(BreakReminderHelper.isBreakCompleted())
+    }
+
+    @Test
+    fun testSeparateWellnessTimer_UnaffectedByBreak() {
+        // Continuous screen session: 25 minutes
+        BreakReminderHelper.onScreenOn()
+        testClock.advance(25 * 60 * 1000L)
+        assertEquals(25 * 60 * 1000L, BreakReminderHelper.getContinuousScreenUsageMillis())
+
+        // Screen turns off for 2 minutes (within 5m grace period)
+        BreakReminderHelper.onScreenOff()
+        testClock.advance(2 * 60 * 1000L)
+        BreakReminderHelper.onScreenOn()
+
+        // Session preserved at 25 minutes
+        assertEquals(25 * 60 * 1000L, BreakReminderHelper.getContinuousScreenUsageMillis())
+        assertEquals(300L, BreakReminderHelper.getRemainingSecondsToThirtyMinutes())
+    }
 }

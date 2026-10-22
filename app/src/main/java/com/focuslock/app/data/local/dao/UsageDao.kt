@@ -52,6 +52,12 @@ interface UsageDao {
         now: Long
     )
 
+    @Query("UPDATE daily_usage SET warning10Triggered = 1, updatedAt = :now WHERE packageName = :packageName AND localDate = :date")
+    suspend fun markWarning10Triggered(packageName: String, date: String, now: Long = System.currentTimeMillis())
+
+    @Query("UPDATE daily_usage SET warning5Triggered = 1, updatedAt = :now WHERE packageName = :packageName AND localDate = :date")
+    suspend fun markWarning5Triggered(packageName: String, date: String, now: Long = System.currentTimeMillis())
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertUsageSession(session: UsageSessionEntity)
 
