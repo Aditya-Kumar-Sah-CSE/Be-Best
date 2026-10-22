@@ -1,10 +1,10 @@
 {
-  "versionCode": 6,
-  "versionName": "1.2.3",
-  "releaseNotes": "• App Limit Bypass Fix: Re-launching, home-press, app-switching, notification taps, or rapid launcher taps now immediately displace blocked apps back to Home and surface BlockingActivity reliably\n• Monotonic Accounting: Sub-minute accounting tracks exact elapsed seconds without loss\n• Enforcement State Machine: Formal EnforcementState (UNDER_LIMIT, LIMIT_REACHED, TEMPORARY_BYPASS_ACTIVE, DAILY_RESET_PENDING) integrated into QuotaEngine\n• Automatic Local Midnight Rollover: Background date monitor checks local calendar date every 5s, resetting quotas seamlessly at 00:00 without app restart\n• Tamper-Proof Time Changes: Clock manipulation or timezone changes no longer unblock exhausted app quotas; blocked package caches remain intact\n• Midnight Rollover UI: BlockingActivity automatically restores access past midnight with an interactive Open App action",
-  "apkUrl": "https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/release/FocusLock-v1.2.3.apk",
-  "apkSha256": "12d462e585639a578f2940b2de82206fabde09d1da2f341b86135925cdfc323a",
-  "apkSizeBytes": 12218043,
+  "versionCode": 7,
+  "versionName": "1.2.4",
+  "releaseNotes": "• Instagram Close-Without-Redirect Fix: Eliminated premature Home displacement conflict; BlockingActivity now renders reliably on top of Instagram without closing or kicking back to the launcher\n• Clear Limit Screen: Prominently displays 'You've reached your daily limit', configured quota, and exact tracked usage vs limit\n• Continuous 30m Wellness Timer: 5-minute screen-off grace period preserves remaining time across short locks and recovers safely from device reboots\n• Monitoring Health Checks: Proactively detects missing Usage Access permissions and guides user to settings",
+  "apkUrl": "https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/release/FocusLock-v1.2.4.apk",
+  "apkSha256": "1FE16261A7A13CCCC22E88BDB94CC283192F76475807FE4EFE3927C4F717C8E9",
+  "apkSizeBytes": 12234438,
   "minSupportedVersionCode": 1,
   "isMandatory": false
 }
