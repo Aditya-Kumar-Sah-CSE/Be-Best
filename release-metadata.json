@@ -1,10 +1,10 @@
 {
-  "versionCode": 3,
-  "versionName": "1.2.0",
-  "releaseNotes": "• End-to-End Instagram & Cross-App Local Usage Tracking (UsageEvents Ground Truth)\n• Discrete Session Reconstruction (Session counts, durations, average & longest sessions)\n• Privacy-Preserving Activity Estimation (Approximate scrolls, zero text/screen logging)\n• Truthful Meta Graph API Disclosures & Local Tracking Independence\n• Universal System-Wide Floating Screen-Time Timer Overlay (◷ 24:38 / 30:00)\n• 30-Minute Break Alert (Walk & Drink Water with Snooze & Break Timers)\n• Room Database v4 with Seamless Non-Destructive Migrations",
-  "apkUrl": "https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/release/FocusLock-v1.2.0.apk",
-  "apkSha256": "911ed47174fd5bc09d480ca437a2e724b1b96f9f40deea01296cc6f9c728f0dc",
-  "apkSizeBytes": 12201640,
+  "versionCode": 4,
+  "versionName": "1.2.1",
+  "releaseNotes": "• Instant Zero-Lag Blocking: Synchronous in-memory package cache eliminates 1-2s delay when opening restricted apps\n• Screen Flash Removal: Seamless instant transition directly over restricted apps\n• 1-Minute Quota Testing Preset: Added 1-min quick-test option for daily app limits\n• Clear Blocking Screen: Displays daily limit reached and midnight countdown guidance\n• Standardized Project Intelligence: Full architectural analysis and automated test verification",
+  "apkUrl": "https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/release/FocusLock-v1.2.1.apk",
+  "apkSha256": "20f584341d6641058ef030c86fe202c2eec011e1940fc8b00237eb9ebf60b7c5",
+  "apkSizeBytes": 12201631,
   "minSupportedVersionCode": 1,
   "isMandatory": false
 }

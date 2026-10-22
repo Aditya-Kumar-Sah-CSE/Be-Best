@@ -44,6 +44,7 @@ class FocusLockAccessibilityService : AccessibilityService() {
                 }
                 Intent.ACTION_SCREEN_ON, Intent.ACTION_USER_PRESENT -> {
                     com.focuslock.app.core.util.BreakReminderHelper.onScreenOn(applicationContext)
+                    refreshBlockedPackagesCache()
                 }
             }
         }
@@ -52,6 +53,7 @@ class FocusLockAccessibilityService : AccessibilityService() {
     override fun onCreate() {
         super.onCreate()
         refreshLauncherPackages()
+        refreshBlockedPackagesCache()
         com.focuslock.app.core.util.BreakReminderHelper.onScreenOn(applicationContext)
         com.focuslock.app.core.util.BreakReminderHelper.createNotificationChannel(applicationContext)
         com.focuslock.app.core.overlay.FloatingTimerService.start(applicationContext)
@@ -84,9 +86,35 @@ class FocusLockAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun refreshBlockedPackagesCache() {
+        serviceScope.launch {
+            try {
+                val today = com.focuslock.app.core.util.TimeUtils.getTodayDateString()
+                val protectedApps = FocusLockApp.instance.database.protectedAppDao().getActiveProtectedApps()
+                for (app in protectedApps) {
+                    appNamesCache[app.packageName] = app.displayName
+                    val usage = FocusLockApp.instance.database.usageDao().getDailyUsageForApp(app.packageName, today)
+                    val isEmergency = usage != null && usage.emergencyUsed && System.currentTimeMillis() < usage.emergencyExpiresAt
+                    val isExhausted = usage != null && (usage.isBlocked || usage.usedSeconds >= app.dailyLimitSeconds)
+                    if (isExhausted && !isEmergency) {
+                        blockedPackagesCache.add(app.packageName)
+                    } else {
+                        blockedPackagesCache.remove(app.packageName)
+                    }
+                }
+            } catch (e: Exception) {
+                // Ignore
+            }
+        }
+    }
+
     private fun isExcludedPackage(packageName: String): Boolean {
+        if (packageName.isBlank()) return true
         if (packageName == applicationContext.packageName) return true
         if (packageName == "com.android.systemui" || packageName == "android") return true
+        if (packageName == "com.google.android.permissioncontroller" || packageName == "com.android.permissioncontroller") return true
+        if (packageName == "com.google.android.packageinstaller" || packageName == "com.android.packageinstaller") return true
+        if (packageName == "com.android.settings") return true
         synchronized(launcherPackages) {
             if (launcherPackages.contains(packageName)) return true
         }
@@ -120,6 +148,15 @@ class FocusLockAccessibilityService : AccessibilityService() {
             recordPreviousSession()
             currentForegroundPackage = null
             activeMonitoringJob?.cancel()
+            return
+        }
+
+        // Fast In-Memory Check: If package is already known to be blocked and no emergency bypass,
+        // intercept immediately on the main thread so Instagram does not remain usable in the foreground.
+        if (blockedPackagesCache.contains(packageName)) {
+            val cachedName = appNamesCache[packageName]
+                ?: packageName.substringAfterLast('.').replaceFirstChar { it.uppercase() }
+            launchBlockScreen(packageName, cachedName)
             return
         }
 
@@ -161,16 +198,13 @@ class FocusLockAccessibilityService : AccessibilityService() {
             }
 
             if (app != null && app.enabled) {
-                // Reconcile with Android's UsageStatsManager first to ensure accurate measured time
-                try {
-                    FocusLockApp.instance.realUsageTracker.syncPackageUsage(packageName)
-                } catch (e: Exception) {
-                    // Fall back to stored Room count if UsageStats is unavailable
-                }
+                appNamesCache[packageName] = app.displayName
 
+                // 1. Evaluate quota FIRST (fast SQLite query, < 2ms)
                 val evaluation = FocusLockApp.instance.quotaEngine.evaluateQuota(packageName)
 
                 if (evaluation.status == ProtectionState.EMERGENCY_ACTIVE) {
+                    blockedPackagesCache.remove(packageName)
                     // Protected app is within its one-time 30-second emergency access window
                     if (isNewApp || activeMonitoringJob?.isActive != true) {
                         activeMonitoringJob?.cancel()
@@ -178,8 +212,11 @@ class FocusLockAccessibilityService : AccessibilityService() {
                         activeMonitoringJob = serviceScope.launch {
                             delay(remainingMs)
                             val reEval = FocusLockApp.instance.quotaEngine.evaluateQuota(packageName)
-                            if (reEval.isBlocked && currentForegroundPackage == packageName) {
-                                launchBlockScreen(packageName, app.displayName)
+                            if (reEval.isBlocked) {
+                                blockedPackagesCache.add(packageName)
+                                if (currentForegroundPackage == packageName) {
+                                    launchBlockScreen(packageName, app.displayName)
+                                }
                             }
                         }
                     }
@@ -187,11 +224,26 @@ class FocusLockAccessibilityService : AccessibilityService() {
                 }
 
                 if (evaluation.isBlocked) {
+                    blockedPackagesCache.add(packageName)
                     launchBlockScreen(packageName, app.displayName)
                     return@launch
                 }
 
-                // If this is a new app entry or monitoring job was cancelled, start active ticker
+                // 2. Reconcile with Android's UsageStatsManager in background to verify real foreground time
+                try {
+                    FocusLockApp.instance.realUsageTracker.syncPackageUsage(packageName)
+                } catch (e: Exception) {
+                    // Fall back to stored Room count if UsageStats is unavailable
+                }
+
+                val postSyncEval = FocusLockApp.instance.quotaEngine.evaluateQuota(packageName)
+                if (postSyncEval.isBlocked) {
+                    blockedPackagesCache.add(packageName)
+                    launchBlockScreen(packageName, app.displayName)
+                    return@launch
+                }
+
+                // 3. App is allowed. Start active monitoring ticker if new app or cancelled
                 if (isNewApp || activeMonitoringJob?.isActive != true) {
                     activeMonitoringJob?.cancel()
                     activeMonitoringJob = serviceScope.launch {
@@ -222,31 +274,21 @@ class FocusLockAccessibilityService : AccessibilityService() {
 
                             val reCheck = FocusLockApp.instance.quotaEngine.evaluateQuota(packageName)
                             if (reCheck.isBlocked) {
+                                blockedPackagesCache.add(packageName)
                                 launchBlockScreen(packageName, app.displayName)
                                 delay(1000L)
                             }
                         }
                     }
                 }
+            } else {
+                blockedPackagesCache.remove(packageName)
             }
         }
     }
 
     private fun launchBlockScreen(packageName: String, appName: String) {
         val nowElapsed = SystemClock.elapsedRealtime()
-
-        // 1. Send the restricted app out of the foreground immediately to the Android Home screen
-        try {
-            performGlobalAction(GLOBAL_ACTION_HOME)
-        } catch (e: Exception) {
-            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
-                addCategory(Intent.CATEGORY_HOME)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            try {
-                startActivity(homeIntent)
-            } catch (ex: Exception) {}
-        }
 
         // Prevent repeated activity launch loops if BlockingActivity is already visibly displayed
         if (BlockingActivity.isBlockingScreenVisible && BlockingActivity.activeBlockedPackage == packageName) {
@@ -260,25 +302,42 @@ class FocusLockAccessibilityService : AccessibilityService() {
         lastBlockedPackage = packageName
         lastBlockLaunchElapsed = nowElapsed
 
-        // 2. Launch BlockingActivity overlay on top
-        serviceScope.launch {
-            delay(100L) // Brief delay for Home transition
+        // Launch FocusLock's BlockingActivity overlay immediately
+        val intent = Intent(this@FocusLockAccessibilityService, BlockingActivity::class.java).apply {
+            putExtra(BlockingActivity.EXTRA_PACKAGE_NAME, packageName)
+            putExtra(BlockingActivity.EXTRA_APP_NAME, appName)
+            addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+            )
+        }
+
+        var activityStarted = false
+        try {
+            startActivity(intent)
+            activityStarted = true
+        } catch (e: Exception) {
+            activityStarted = false
+        }
+
+        if (!activityStarted) {
+            // Android-supported fallback when background Activity launch restrictions apply:
+            // 1. Move restricted app out of the foreground immediately to the Home screen
             try {
-                val intent = Intent(this@FocusLockAccessibilityService, BlockingActivity::class.java).apply {
-                    putExtra(BlockingActivity.EXTRA_PACKAGE_NAME, packageName)
-                    putExtra(BlockingActivity.EXTRA_APP_NAME, appName)
-                    addFlags(
-                        Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
-                    )
-                }
-                startActivity(intent)
+                performGlobalAction(GLOBAL_ACTION_HOME)
             } catch (e: Exception) {
-                // High-priority notification fallback if background activity start is restricted
-                showBlockingNotification(packageName, appName)
+                try {
+                    val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                        addCategory(Intent.CATEGORY_HOME)
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    startActivity(homeIntent)
+                } catch (ex: Exception) {}
             }
+            // 2. Post high-priority notification with full-screen intent
+            showBlockingNotification(packageName, appName)
         }
     }
 
@@ -391,5 +450,29 @@ class FocusLockAccessibilityService : AccessibilityService() {
             unregisterReceiver(screenReceiver)
         } catch (e: Exception) {}
         serviceScope.cancel()
+    }
+
+    companion object {
+        private val blockedPackagesCache = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        private val appNamesCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+        fun isPackageBlockedFast(packageName: String): Boolean {
+            return blockedPackagesCache.contains(packageName)
+        }
+
+        fun updateBlockedPackage(packageName: String, isBlocked: Boolean, appName: String? = null) {
+            if (appName != null) {
+                appNamesCache[packageName] = appName
+            }
+            if (isBlocked) {
+                blockedPackagesCache.add(packageName)
+            } else {
+                blockedPackagesCache.remove(packageName)
+            }
+        }
+
+        fun clearBlockedCache() {
+            blockedPackagesCache.clear()
+        }
     }
 }

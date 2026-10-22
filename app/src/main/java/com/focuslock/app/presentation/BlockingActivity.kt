@@ -270,7 +270,7 @@ fun BlockingScreen(
 
                 // Title: Daily Limit Reached
                 Text(
-                    text = "Daily limit reached",
+                    text = "Daily Limit Reached",
                     fontSize = 24.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = Color.White,
@@ -287,7 +287,19 @@ fun BlockingScreen(
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = "You've used your $appName allowance for today. Take a break and come back tomorrow.",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = Neutral200,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 20.sp,
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
 
                 // Used today real duration
                 val usedDurationText = currentEval?.let {
@@ -296,9 +308,9 @@ fun BlockingScreen(
 
                 Text(
                     text = usedDurationText,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = Neutral200,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFFF59E0B),
                     textAlign = TextAlign.Center
                 )
 
@@ -446,6 +458,7 @@ fun BlockingScreen(
                             coroutineScope.launch {
                                 val result = FocusLockApp.instance.quotaEngine.startEmergencySession(packageName)
                                 if (result is EmergencyStartResult.Success) {
+                                    com.focuslock.app.service.FocusLockAccessibilityService.updateBlockedPackage(packageName, isBlocked = false)
                                     onEmergencyAccessGranted()
                                 } else {
                                     emergencyErrorMessage = "Emergency session unavailable or already consumed."

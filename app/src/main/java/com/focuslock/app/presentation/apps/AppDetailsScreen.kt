@@ -88,7 +88,7 @@ fun AppDetailsScreen(
         viewModel.loadAppDetails(packageName)
     }
 
-    val limits = listOf(15 * 60L, 30 * 60L, 45 * 60L, 60 * 60L, 90 * 60L, 120 * 60L)
+    val limits = listOf(1 * 60L, 15 * 60L, 30 * 60L, 45 * 60L, 60 * 60L, 90 * 60L, 120 * 60L)
 
     Scaffold(
         containerColor = DarkBackground

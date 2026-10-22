@@ -224,4 +224,150 @@ class ExternalAppBlockingTest {
             assertEquals("Used seconds must not be reset on repeated attempts", 1800L, eval.usedSeconds)
         }
     }
+
+    @Test
+    fun testInstagramOneMinuteLimit_ReachesLimit_ExhaustedStatePersisted() = runBlocking {
+        // 1. Configure separate 1-minute (60s) daily limit specifically for Instagram
+        val oneMinuteLimitSeconds = 60L
+        protectedAppDao.insertOrUpdate(
+            ProtectedAppEntity(
+                packageName = instagramPkg,
+                displayName = "Instagram",
+                dailyLimitSeconds = oneMinuteLimitSeconds,
+                enabled = true,
+                category = "SOCIAL"
+            )
+        )
+
+        val initialEval = quotaEngine.evaluateQuota(instagramPkg)
+        assertFalse("Instagram with 1m limit starts unblocked", initialEval.isBlocked)
+        assertEquals(60L, initialEval.remainingSeconds)
+
+        // 2. Reach the 1-minute limit
+        quotaEngine.recordUsage(instagramPkg, 60L)
+
+        // 3. Verify exhausted state
+        val exhaustedEval = quotaEngine.evaluateQuota(instagramPkg)
+        assertTrue("Instagram must be blocked immediately after 1 minute", exhaustedEval.isBlocked)
+        assertEquals(ProtectionState.EXHAUSTED, exhaustedEval.status)
+        assertEquals(0L, exhaustedEval.remainingSeconds)
+        assertTrue(exhaustedEval.canUseEmergency)
+
+        // Verify exhausted state is persisted in Room database for today's date
+        val todayStr = com.focuslock.app.core.util.TimeUtils.formatDate(fakeTimeProvider.getTodayLocalDate())
+        val persistedUsage = usageDao.getDailyUsageForApp(instagramPkg, todayStr)
+        assertNotNull("Usage record must be persisted", persistedUsage)
+        assertTrue("isBlocked must be persisted in database", persistedUsage!!.isBlocked)
+        assertEquals("usedSeconds must equal 60s in database", 60L, persistedUsage.usedSeconds)
+    }
+
+    @Test
+    fun testInstagramOneMinuteLimit_ReopeningAndReturnHome_RemainsBlocked() = runBlocking {
+        // Configure 1-minute limit and exhaust it
+        protectedAppDao.insertOrUpdate(
+            ProtectedAppEntity(
+                packageName = instagramPkg,
+                displayName = "Instagram",
+                dailyLimitSeconds = 60L,
+                enabled = true,
+                category = "SOCIAL"
+            )
+        )
+        quotaEngine.recordUsage(instagramPkg, 60L)
+        assertTrue(quotaEngine.evaluateQuota(instagramPkg).isBlocked)
+
+        // User returns to Home screen and later taps Instagram icon again
+        fakeTimeProvider.advanceSeconds(300) // 5 minutes later
+
+        val reopenEval = quotaEngine.evaluateQuota(instagramPkg)
+        assertTrue("Reopening Instagram after returning Home must remain strictly blocked", reopenEval.isBlocked)
+        assertEquals(0L, reopenEval.remainingSeconds)
+    }
+
+    @Test
+    fun testInstagramOneMinuteLimit_EmergencyBypass_ThenReEnforced() = runBlocking {
+        // Configure 1-minute limit and exhaust it
+        protectedAppDao.insertOrUpdate(
+            ProtectedAppEntity(
+                packageName = instagramPkg,
+                displayName = "Instagram",
+                dailyLimitSeconds = 60L,
+                enabled = true,
+                category = "SOCIAL"
+            )
+        )
+        quotaEngine.recordUsage(instagramPkg, 60L)
+
+        // Request 30-second emergency bypass
+        val emergencyResult = quotaEngine.startEmergencySession(instagramPkg)
+        assertTrue("Emergency bypass must be granted", emergencyResult is EmergencyStartResult.Success)
+
+        // Verify active during bypass window
+        fakeTimeProvider.advanceSeconds(15)
+        val activeEval = quotaEngine.evaluateQuota(instagramPkg)
+        assertFalse("Instagram accessible during active 30s bypass", activeEval.isBlocked)
+        assertEquals(ProtectionState.EMERGENCY_ACTIVE, activeEval.status)
+
+        // When bypass window expires (total 31 seconds)
+        fakeTimeProvider.advanceSeconds(16)
+        val reBlockedEval = quotaEngine.evaluateQuota(instagramPkg)
+        assertTrue("After bypass expires, Instagram must be blocked again", reBlockedEval.isBlocked)
+        assertEquals(ProtectionState.BLOCKED_UNTIL_RESET, reBlockedEval.status)
+        assertFalse("Cannot use emergency twice on same day", reBlockedEval.canUseEmergency)
+    }
+
+    @Test
+    fun testInstagramOneMinuteLimit_ServiceRestart_PreservesBlockedState() = runBlocking {
+        protectedAppDao.insertOrUpdate(
+            ProtectedAppEntity(
+                packageName = instagramPkg,
+                displayName = "Instagram",
+                dailyLimitSeconds = 60L,
+                enabled = true,
+                category = "SOCIAL"
+            )
+        )
+        quotaEngine.recordUsage(instagramPkg, 60L)
+        assertTrue(quotaEngine.evaluateQuota(instagramPkg).isBlocked)
+
+        // Simulate service restart by creating a new QuotaEngine instance
+        val restartedEngine = QuotaEngine(
+            protectedAppDao = protectedAppDao,
+            usageDao = usageDao,
+            focusSessionDao = null,
+            timeProvider = fakeTimeProvider,
+            permissionChecker = permissionChecker
+        )
+
+        val restartedEval = restartedEngine.evaluateQuota(instagramPkg)
+        assertTrue("Service restart must preserve exhausted state", restartedEval.isBlocked)
+        assertEquals(60L, restartedEval.usedSeconds)
+        assertEquals(0L, restartedEval.remainingSeconds)
+    }
+
+    @Test
+    fun testInstagramOneMinuteLimit_NextDayReset_AllowsInstagramAgain() = runBlocking {
+        protectedAppDao.insertOrUpdate(
+            ProtectedAppEntity(
+                packageName = instagramPkg,
+                displayName = "Instagram",
+                dailyLimitSeconds = 60L,
+                enabled = true,
+                category = "SOCIAL"
+            )
+        )
+        quotaEngine.recordUsage(instagramPkg, 60L)
+        assertTrue(quotaEngine.evaluateQuota(instagramPkg).isBlocked)
+
+        // Midnight arrives: Advance date by 1 day
+        fakeTimeProvider.advanceDateByDays(1)
+        quotaEngine.checkAndPerformMidnightReset()
+
+        // Verify Instagram is allowed again on the new day with a fresh 60-second quota
+        val nextDayEval = quotaEngine.evaluateQuota(instagramPkg)
+        assertFalse("Instagram must be allowed on the new day after midnight reset", nextDayEval.isBlocked)
+        assertEquals(0L, nextDayEval.usedSeconds)
+        assertEquals(60L, nextDayEval.remainingSeconds)
+        assertEquals(ProtectionState.ALLOWED, nextDayEval.status)
+    }
 }
