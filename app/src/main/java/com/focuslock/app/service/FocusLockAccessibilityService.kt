@@ -240,7 +240,7 @@ class FocusLockAccessibilityService : AccessibilityService() {
             return
         }
 
-        if (lastBlockedPackage == packageName && (nowElapsed - lastBlockLaunchElapsed) < 800L) {
+        if (lastBlockedPackage == packageName && (nowElapsed - lastBlockLaunchElapsed) < 400L) {
             return
         }
 
@@ -249,7 +249,7 @@ class FocusLockAccessibilityService : AccessibilityService() {
 
         // 2. Launch BlockingActivity overlay on top
         serviceScope.launch {
-            delay(150L) // Wait for Home transition
+            delay(100L) // Brief delay for Home transition
             try {
                 val intent = Intent(this@FocusLockAccessibilityService, BlockingActivity::class.java).apply {
                     putExtra(BlockingActivity.EXTRA_PACKAGE_NAME, packageName)

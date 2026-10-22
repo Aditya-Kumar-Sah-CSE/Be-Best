@@ -208,4 +208,20 @@ class ExternalAppBlockingTest {
         assertFalse("FocusLock itself must NEVER be blocked", eval.isBlocked)
         assertEquals(ProtectionState.ALLOWED, eval.status)
     }
+
+    @Test
+    fun testRepeatedReOpen_RemainsBlockedWithoutQuotaReset() = runBlocking {
+        // App reaches exact limit
+        quotaEngine.recordUsage(instagramPkg, 1800L)
+        val initialEval = quotaEngine.evaluateQuota(instagramPkg)
+        assertTrue("First attempt must be blocked", initialEval.isBlocked)
+
+        // Simulate repeated user openings (1st, 2nd, 3rd attempts)
+        for (attempt in 1..5) {
+            fakeTimeProvider.advanceSeconds(5)
+            val eval = quotaEngine.evaluateQuota(instagramPkg)
+            assertTrue("Attempt #$attempt must strictly remain blocked", eval.isBlocked)
+            assertEquals("Used seconds must not be reset on repeated attempts", 1800L, eval.usedSeconds)
+        }
+    }
 }

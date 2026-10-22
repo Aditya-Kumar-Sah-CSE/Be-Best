@@ -208,9 +208,8 @@ class RealUsageTracker(
             val quota = app?.dailyLimitSeconds ?: 1800L
 
             if (existing != null) {
-                // If existing has a massive discrepancy (> 180s) compared to genuine OS events for today,
-                // it means existing was contaminated with yesterday's or midnight ghost usage. Overwrite with measured truth.
-                val reconciledSeconds = if (existing.usedSeconds > measuredSeconds + 180L) {
+                val isLegacyGhostAnomaly = existing.usedSeconds >= 14400L && measuredSeconds in 1L..3600L
+                val reconciledSeconds = if (isLegacyGhostAnomaly) {
                     measuredSeconds
                 } else {
                     maxOf(measuredSeconds, existing.usedSeconds)
@@ -255,8 +254,8 @@ class RealUsageTracker(
         val quota = app?.dailyLimitSeconds ?: 1800L
 
         if (existing != null) {
-            // Heal contaminated records (> 180s discrepancy with OS ground truth)
-            val reconciledSeconds = if (existing.usedSeconds > measuredSeconds + 180L) {
+            val isLegacyGhostAnomaly = existing.usedSeconds >= 14400L && measuredSeconds in 1L..3600L
+            val reconciledSeconds = if (isLegacyGhostAnomaly) {
                 measuredSeconds
             } else {
                 maxOf(measuredSeconds, existing.usedSeconds)

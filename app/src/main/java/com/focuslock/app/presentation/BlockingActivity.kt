@@ -81,17 +81,24 @@ import kotlinx.coroutines.launch
 
 class BlockingActivity : ComponentActivity() {
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
+    private var currentPackageName by mutableStateOf("")
+    private var currentAppName by mutableStateOf("Protected App")
+    private var currentAppIcon by mutableStateOf<Drawable?>(null)
 
-        val packageName = intent.getStringExtra(EXTRA_PACKAGE_NAME) ?: ""
-        val appName = intent.getStringExtra(EXTRA_APP_NAME) ?: "Protected App"
-
-        val appIcon: Drawable? = try {
-            if (packageName.isNotBlank()) packageManager.getApplicationIcon(packageName) else null
+    private fun updateFromIntent(intent: Intent?) {
+        val pkg = intent?.getStringExtra(EXTRA_PACKAGE_NAME) ?: ""
+        currentPackageName = pkg
+        currentAppName = intent?.getStringExtra(EXTRA_APP_NAME) ?: "Protected App"
+        currentAppIcon = try {
+            if (pkg.isNotBlank()) packageManager.getApplicationIcon(pkg) else null
         } catch (e: Exception) {
             null
         }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        updateFromIntent(intent)
 
         onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -107,9 +114,9 @@ class BlockingActivity : ComponentActivity() {
         setContent {
             FocusLockTheme {
                 BlockingScreen(
-                    packageName = packageName,
-                    appName = appName,
-                    appIcon = appIcon,
+                    packageName = currentPackageName,
+                    appName = currentAppName,
+                    appIcon = currentAppIcon,
                     onGoHome = {
                         val homeIntent = Intent(Intent.ACTION_MAIN).apply {
                             addCategory(Intent.CATEGORY_HOME)
@@ -126,7 +133,7 @@ class BlockingActivity : ComponentActivity() {
                         finish()
                     },
                     onEmergencyAccessGranted = {
-                        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+                        val launchIntent = packageManager.getLaunchIntentForPackage(currentPackageName)
                         if (launchIntent != null) {
                             launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             startActivity(launchIntent)
@@ -136,6 +143,12 @@ class BlockingActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        updateFromIntent(intent)
     }
 
     override fun onResume() {

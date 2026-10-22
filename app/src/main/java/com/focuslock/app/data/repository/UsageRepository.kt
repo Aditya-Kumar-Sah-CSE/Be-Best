@@ -163,8 +163,8 @@ class UsageRepositoryImpl(
             val existing = dao.getDailyUsageForApp(pkg, today)
 
             if (existing != null) {
-                // Heal contaminated records (> 180s discrepancy with OS ground truth)
-                val reconciledSeconds = if (existing.usedSeconds > statsUsageSeconds + 180L) {
+                val isLegacyGhostAnomaly = existing.usedSeconds >= 14400L && statsUsageSeconds in 1L..3600L
+                val reconciledSeconds = if (isLegacyGhostAnomaly) {
                     statsUsageSeconds
                 } else {
                     maxOf(statsUsageSeconds, existing.usedSeconds)
