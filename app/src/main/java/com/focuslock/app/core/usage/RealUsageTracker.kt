@@ -93,7 +93,6 @@ class RealUsageTracker(
             val events = manager.queryEvents(startDay, now) ?: return 0L
             var totalMs = 0L
             var lastResumeMs = 0L
-            var hasSeenAnyEvent = false
             val event = android.app.usage.UsageEvents.Event()
 
             while (events.hasNextEvent()) {
@@ -102,7 +101,6 @@ class RealUsageTracker(
                     when (event.eventType) {
                         android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED,
                         android.app.usage.UsageEvents.Event.MOVE_TO_FOREGROUND -> {
-                            hasSeenAnyEvent = true
                             lastResumeMs = event.timeStamp
                         }
                         android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED,
@@ -114,14 +112,7 @@ class RealUsageTracker(
                                     totalMs += duration
                                 }
                                 lastResumeMs = 0L
-                            } else if (!hasSeenAnyEvent) {
-                                // App was already in foreground when local midnight started
-                                val duration = event.timeStamp - startDay
-                                if (duration > 0) {
-                                    totalMs += duration
-                                }
                             }
-                            hasSeenAnyEvent = true
                         }
                     }
                 }
@@ -141,7 +132,6 @@ class RealUsageTracker(
     private fun getForegroundTimesFromEventsBatch(manager: UsageStatsManager, startDay: Long, now: Long): Map<String, Long> {
         val resultMap = mutableMapOf<String, Long>()
         val lastResumeMap = mutableMapOf<String, Long>()
-        val hasSeenEventMap = mutableMapOf<String, Boolean>()
 
         try {
             val events = manager.queryEvents(startDay, now) ?: return emptyMap()
@@ -153,7 +143,6 @@ class RealUsageTracker(
                 when (event.eventType) {
                     android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED,
                     android.app.usage.UsageEvents.Event.MOVE_TO_FOREGROUND -> {
-                        hasSeenEventMap[pkg] = true
                         lastResumeMap[pkg] = event.timeStamp
                     }
                     android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED,
@@ -166,13 +155,7 @@ class RealUsageTracker(
                                 resultMap[pkg] = (resultMap[pkg] ?: 0L) + duration
                             }
                             lastResumeMap[pkg] = 0L
-                        } else if (hasSeenEventMap[pkg] != true) {
-                            val duration = event.timeStamp - startDay
-                            if (duration > 0) {
-                                resultMap[pkg] = (resultMap[pkg] ?: 0L) + duration
-                            }
                         }
-                        hasSeenEventMap[pkg] = true
                     }
                 }
             }
@@ -225,12 +208,19 @@ class RealUsageTracker(
             val quota = app?.dailyLimitSeconds ?: 1800L
 
             if (existing != null) {
-                val maxSecs = maxOf(measuredSeconds, existing.usedSeconds)
-                if (maxSecs > existing.usedSeconds) {
+                // If existing has a massive discrepancy (> 180s) compared to genuine OS events for today,
+                // it means existing was contaminated with yesterday's or midnight ghost usage. Overwrite with measured truth.
+                val reconciledSeconds = if (existing.usedSeconds > measuredSeconds + 180L) {
+                    measuredSeconds
+                } else {
+                    maxOf(measuredSeconds, existing.usedSeconds)
+                }
+
+                if (reconciledSeconds != existing.usedSeconds) {
                     usageDao.insertOrUpdateDailyUsage(
                         existing.copy(
-                            usedSeconds = maxSecs,
-                            isBlocked = maxSecs >= existing.quotaSeconds,
+                            usedSeconds = reconciledSeconds,
+                            isBlocked = reconciledSeconds >= existing.quotaSeconds,
                             updatedAt = now
                         )
                     )
@@ -265,17 +255,23 @@ class RealUsageTracker(
         val quota = app?.dailyLimitSeconds ?: 1800L
 
         if (existing != null) {
-            val maxSeconds = maxOf(measuredSeconds, existing.usedSeconds)
-            if (maxSeconds > existing.usedSeconds) {
+            // Heal contaminated records (> 180s discrepancy with OS ground truth)
+            val reconciledSeconds = if (existing.usedSeconds > measuredSeconds + 180L) {
+                measuredSeconds
+            } else {
+                maxOf(measuredSeconds, existing.usedSeconds)
+            }
+
+            if (reconciledSeconds != existing.usedSeconds) {
                 usageDao.insertOrUpdateDailyUsage(
                     existing.copy(
-                        usedSeconds = maxSeconds,
-                        isBlocked = maxSeconds >= existing.quotaSeconds,
+                        usedSeconds = reconciledSeconds,
+                        isBlocked = reconciledSeconds >= existing.quotaSeconds,
                         updatedAt = now
                     )
                 )
             }
-            maxSeconds
+            reconciledSeconds
         } else if (measuredSeconds > 0L) {
             usageDao.insertOrUpdateDailyUsage(
                 DailyUsageEntity(

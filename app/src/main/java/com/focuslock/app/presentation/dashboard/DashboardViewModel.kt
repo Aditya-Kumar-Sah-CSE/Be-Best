@@ -96,6 +96,15 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             isHardcoreActive = securityManager.isHardcoreModeActive(),
             secondsUntilMidnight = TimeUtils.getSecondsUntilNextMidnight()
         )
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val active = appRepo.getActiveProtectedApps().map { it.packageName }
+                if (active.isNotEmpty()) {
+                    app.realUsageTracker.reconcileWithAndroidUsageStats(active)
+                }
+            } catch (e: Exception) {}
+        }
     }
 
     private fun startMidnightCountdownTicker() {

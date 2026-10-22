@@ -22,12 +22,30 @@ class AndroidPermissionChecker(private val context: Context) : PermissionChecker
     }
 
     fun isAccessibilityServiceEnabled(): Boolean {
-        val expectedService = "${context.packageName}/${FocusLockAccessibilityService::class.java.canonicalName}"
+        // 1. Authoritative OS check via AccessibilityManager
+        try {
+            val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? android.view.accessibility.AccessibilityManager
+            if (am != null) {
+                val enabledServices = am.getEnabledAccessibilityServiceList(android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+                if (enabledServices.any { it.resolveInfo?.serviceInfo?.packageName == context.packageName }) {
+                    return true
+                }
+            }
+        } catch (e: Exception) {
+            // Fall back to Secure.getString check
+        }
+
+        // 2. Fallback check via Settings.Secure
+        val canonical = "${context.packageName}/${FocusLockAccessibilityService::class.java.canonicalName}"
+        val shortName = "${context.packageName}/.service.FocusLockAccessibilityService"
+        val altName = "${context.packageName}/${FocusLockAccessibilityService::class.java.name}"
+
         val enabledServices = Settings.Secure.getString(
             context.contentResolver,
             Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
         ) ?: return false
-        return enabledServices.contains(expectedService)
+
+        return enabledServices.contains(canonical) || enabledServices.contains(shortName) || enabledServices.contains(altName)
     }
 
     override fun areEnforcementPermissionsActive(): Boolean {

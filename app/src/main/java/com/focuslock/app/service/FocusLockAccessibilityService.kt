@@ -33,6 +33,8 @@ class FocusLockAccessibilityService : AccessibilityService() {
     private var continuousScreenStartElapsed: Long = 0L
     private var breakMonitorJob: Job? = null
 
+    private val launcherPackages = mutableSetOf<String>()
+
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
@@ -49,6 +51,7 @@ class FocusLockAccessibilityService : AccessibilityService() {
 
     override fun onCreate() {
         super.onCreate()
+        refreshLauncherPackages()
         com.focuslock.app.core.util.BreakReminderHelper.onScreenOn(applicationContext)
         com.focuslock.app.core.util.BreakReminderHelper.createNotificationChannel(applicationContext)
 
@@ -62,6 +65,33 @@ class FocusLockAccessibilityService : AccessibilityService() {
         startContinuousBreakMonitor()
     }
 
+    private fun refreshLauncherPackages() {
+        try {
+            val launcherIntent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+            }
+            val resolveInfos = packageManager.queryIntentActivities(launcherIntent, 0)
+            synchronized(launcherPackages) {
+                launcherPackages.clear()
+                for (info in resolveInfos) {
+                    info.activityInfo?.packageName?.let { launcherPackages.add(it) }
+                }
+            }
+        } catch (e: Exception) {
+            // Ignore
+        }
+    }
+
+    private fun isExcludedPackage(packageName: String): Boolean {
+        if (packageName == applicationContext.packageName) return true
+        if (packageName == "com.android.systemui" || packageName == "android") return true
+        synchronized(launcherPackages) {
+            if (launcherPackages.contains(packageName)) return true
+        }
+        val lower = packageName.lowercase()
+        return lower.contains("launcher") || lower.contains("trebuchet") || lower.endsWith(".home") || lower.contains(".home.")
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
         val eventType = event.eventType
@@ -73,12 +103,7 @@ class FocusLockAccessibilityService : AccessibilityService() {
             ?: return
 
         // Exclude system UI components, launchers, and FocusLock itself
-        if (packageName == applicationContext.packageName ||
-            packageName == "com.android.systemui" ||
-            packageName.contains("launcher") ||
-            packageName.contains("trebuchet") ||
-            packageName == "android"
-        ) {
+        if (isExcludedPackage(packageName)) {
             recordPreviousSession()
             currentForegroundPackage = null
             activeMonitoringJob?.cancel()
@@ -185,7 +210,7 @@ class FocusLockAccessibilityService : AccessibilityService() {
                             val reCheck = FocusLockApp.instance.quotaEngine.evaluateQuota(packageName)
                             if (reCheck.isBlocked) {
                                 launchBlockScreen(packageName, app.displayName)
-                                break
+                                delay(1000L)
                             }
                         }
                     }
@@ -195,12 +220,26 @@ class FocusLockAccessibilityService : AccessibilityService() {
     }
 
     private fun launchBlockScreen(packageName: String, appName: String) {
-        // Prevent repeated launch loops if BlockingActivity is already visibly displayed
+        val nowElapsed = SystemClock.elapsedRealtime()
+
+        // 1. Send the restricted app out of the foreground immediately to the Android Home screen
+        try {
+            performGlobalAction(GLOBAL_ACTION_HOME)
+        } catch (e: Exception) {
+            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            try {
+                startActivity(homeIntent)
+            } catch (ex: Exception) {}
+        }
+
+        // Prevent repeated activity launch loops if BlockingActivity is already visibly displayed
         if (BlockingActivity.isBlockingScreenVisible && BlockingActivity.activeBlockedPackage == packageName) {
             return
         }
 
-        val nowElapsed = SystemClock.elapsedRealtime()
         if (lastBlockedPackage == packageName && (nowElapsed - lastBlockLaunchElapsed) < 800L) {
             return
         }
@@ -208,16 +247,57 @@ class FocusLockAccessibilityService : AccessibilityService() {
         lastBlockedPackage = packageName
         lastBlockLaunchElapsed = nowElapsed
 
-        val intent = Intent(this, BlockingActivity::class.java).apply {
-            putExtra(BlockingActivity.EXTRA_PACKAGE_NAME, packageName)
-            putExtra(BlockingActivity.EXTRA_APP_NAME, appName)
-            addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK or
-                Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                Intent.FLAG_ACTIVITY_SINGLE_TOP
-            )
+        // 2. Launch BlockingActivity overlay on top
+        serviceScope.launch {
+            delay(150L) // Wait for Home transition
+            try {
+                val intent = Intent(this@FocusLockAccessibilityService, BlockingActivity::class.java).apply {
+                    putExtra(BlockingActivity.EXTRA_PACKAGE_NAME, packageName)
+                    putExtra(BlockingActivity.EXTRA_APP_NAME, appName)
+                    addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                    )
+                }
+                startActivity(intent)
+            } catch (e: Exception) {
+                // High-priority notification fallback if background activity start is restricted
+                showBlockingNotification(packageName, appName)
+            }
         }
-        startActivity(intent)
+    }
+
+    private fun showBlockingNotification(packageName: String, appName: String) {
+        try {
+            val intent = Intent(this, BlockingActivity::class.java).apply {
+                putExtra(BlockingActivity.EXTRA_PACKAGE_NAME, packageName)
+                putExtra(BlockingActivity.EXTRA_APP_NAME, appName)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
+            val pendingIntent = android.app.PendingIntent.getActivity(
+                this,
+                packageName.hashCode(),
+                intent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val builder = androidx.core.app.NotificationCompat.Builder(this, FocusLockApp.CHANNEL_ID_PROTECTION)
+                .setSmallIcon(android.R.drawable.ic_lock_lock)
+                .setContentTitle("$appName is Locked")
+                .setContentText("You have reached your 30-minute daily limit.")
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                .setCategory(androidx.core.app.NotificationCompat.CATEGORY_ALARM)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .setFullScreenIntent(pendingIntent, true)
+
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+            manager?.notify(packageName.hashCode(), builder.build())
+        } catch (e: Exception) {
+            // Ignore
+        }
     }
 
     /**

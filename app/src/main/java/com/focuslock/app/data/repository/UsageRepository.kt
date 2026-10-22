@@ -122,7 +122,6 @@ class UsageRepositoryImpl(
 
         val resultMap = mutableMapOf<String, Long>()
         val lastResumeMap = mutableMapOf<String, Long>()
-        val hasSeenEventMap = mutableMapOf<String, Boolean>()
         val event = android.app.usage.UsageEvents.Event()
 
         while (events.hasNextEvent()) {
@@ -133,7 +132,6 @@ class UsageRepositoryImpl(
             when (event.eventType) {
                 android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED,
                 android.app.usage.UsageEvents.Event.MOVE_TO_FOREGROUND -> {
-                    hasSeenEventMap[pkg] = true
                     lastResumeMap[pkg] = event.timeStamp
                 }
                 android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED,
@@ -146,13 +144,7 @@ class UsageRepositoryImpl(
                             resultMap[pkg] = (resultMap[pkg] ?: 0L) + duration
                         }
                         lastResumeMap[pkg] = 0L
-                    } else if (hasSeenEventMap[pkg] != true) {
-                        val duration = event.timeStamp - startDay
-                        if (duration > 0) {
-                            resultMap[pkg] = (resultMap[pkg] ?: 0L) + duration
-                        }
                     }
-                    hasSeenEventMap[pkg] = true
                 }
             }
         }
@@ -171,11 +163,18 @@ class UsageRepositoryImpl(
             val existing = dao.getDailyUsageForApp(pkg, today)
 
             if (existing != null) {
-                if (statsUsageSeconds > existing.usedSeconds) {
+                // Heal contaminated records (> 180s discrepancy with OS ground truth)
+                val reconciledSeconds = if (existing.usedSeconds > statsUsageSeconds + 180L) {
+                    statsUsageSeconds
+                } else {
+                    maxOf(statsUsageSeconds, existing.usedSeconds)
+                }
+
+                if (reconciledSeconds != existing.usedSeconds) {
                     dao.insertOrUpdateDailyUsage(
                         existing.copy(
-                            usedSeconds = statsUsageSeconds,
-                            isBlocked = statsUsageSeconds >= existing.quotaSeconds,
+                            usedSeconds = reconciledSeconds,
+                            isBlocked = reconciledSeconds >= existing.quotaSeconds,
                             updatedAt = now
                         )
                     )

@@ -51,6 +51,11 @@ class AppDetailsViewModel(application: Application) : AndroidViewModel(applicati
 
     fun loadAppDetails(packageName: String) {
         viewModelScope.launch {
+            try {
+                app.realUsageTracker.syncPackageUsage(packageName)
+            } catch (e: Exception) {
+                // Ignore if usage access not granted
+            }
             val protectedApp = appRepo.getApp(packageName)
             val evaluation = quotaEngine.evaluateQuota(packageName)
             val icon = appRepo.getAppIcon(packageName)
