@@ -1,10 +1,10 @@
 {
-  "versionCode": 4,
-  "versionName": "1.2.1",
-  "releaseNotes": "• Instant Zero-Lag Blocking: Synchronous in-memory package cache eliminates 1-2s delay when opening restricted apps\n• Screen Flash Removal: Seamless instant transition directly over restricted apps\n• 1-Minute Quota Testing Preset: Added 1-min quick-test option for daily app limits\n• Clear Blocking Screen: Displays daily limit reached and midnight countdown guidance\n• Standardized Project Intelligence: Full architectural analysis and automated test verification",
-  "apkUrl": "https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/release/FocusLock-v1.2.1.apk",
-  "apkSha256": "20f584341d6641058ef030c86fe202c2eec011e1940fc8b00237eb9ebf60b7c5",
-  "apkSizeBytes": 12201631,
+  "versionCode": 5,
+  "versionName": "1.2.2",
+  "releaseNotes": "• Continuous 30-Minute Screen-On Timer: Monotonic screen tracking; switching apps never resets the timer; screen-off resets session\n• Pleasant Alert Sound: Harmonic synthesized chime and warm spoken prompt ('Please, sir! It\\'s time to take care of yourself')\n• Custom Audio & Video: Pick any song or video from device storage with persistent URI permissions and volume slider\n• 3D Animations: High-fidelity animated walking character and drinking water glass Canvas visuals\n• 3 Clear User Actions: 'Take a 5-Minute Break', 'Remind Me in 5 Minutes' (Snooze), and 'Dismiss'\n• Synchronized Top Floating Timer: Displays live countdown (◷ 00:00 / 30:00) and break progress (☕ Break 05:00)",
+  "apkUrl": "https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/release/FocusLock-v1.2.2.apk",
+  "apkSha256": "20054ec6dfd1937423ccf1a8090749eec946f569d135287b8bd1947c7638f3b9",
+  "apkSizeBytes": 12218045,
   "minSupportedVersionCode": 1,
   "isMandatory": false
 }

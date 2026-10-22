@@ -2,7 +2,12 @@ package com.focuslock.app.presentation.settings
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.provider.OpenableColumns
 import android.provider.Settings
+import com.focuslock.app.presentation.breakalert.BreakAlertActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -24,21 +29,31 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Pin
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Vibration
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -115,6 +130,36 @@ fun SettingsScreen(
         mutableStateOf(com.focuslock.app.core.overlay.FloatingTimerManager.hasOverlayPermission(context))
     }
 
+    val wellnessPrefs = remember { com.focuslock.app.core.wellness.WellnessPreferences.getInstance(context) }
+    val soundManager = remember { com.focuslock.app.core.wellness.WellnessSoundManager.getInstance(context) }
+
+    var isAudioEnabled by remember { mutableStateOf(wellnessPrefs.isAudioEnabled) }
+    var isVibrationEnabled by remember { mutableStateOf(wellnessPrefs.isVibrationEnabled) }
+    var audioVolume by remember { mutableStateOf(wellnessPrefs.audioVolume) }
+    var customAudioTitle by remember { mutableStateOf(wellnessPrefs.customAudioTitle) }
+    var customVideoTitle by remember { mutableStateOf(wellnessPrefs.customVideoTitle) }
+    var isPreviewPlaying by remember { mutableStateOf(false) }
+
+    val audioPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            val fileName = getFileNameFromUri(context, uri) ?: "Selected Song"
+            wellnessPrefs.setCustomAudio(uri, fileName)
+            customAudioTitle = fileName
+        }
+    }
+
+    val videoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            val fileName = getFileNameFromUri(context, uri) ?: "Selected Video"
+            wellnessPrefs.setCustomVideo(uri, fileName)
+            customVideoTitle = fileName
+        }
+    }
+
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
@@ -129,6 +174,7 @@ fun SettingsScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+            soundManager.stop()
         }
     }
 
@@ -264,6 +310,7 @@ fun SettingsScreen(
                         onClick = { showWellbeingSection = !showWellbeingSection }
                     ) {
                         Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                            // 1. Main Break Alert Toggle
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -278,7 +325,7 @@ fun SettingsScreen(
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = "Automatically alerts you to take a 5-minute break to walk, stretch, and drink water when your screen is on continuously for 30 minutes.",
+                                        text = "Automatically alerts you to take a 5-minute break to walk, stretch, and drink water when screen is on continuously for 30 minutes.",
                                         fontSize = 12.sp,
                                         color = AppTheme.colors.textSecondary,
                                         lineHeight = 16.sp
@@ -289,7 +336,7 @@ fun SettingsScreen(
                                     checked = breakAlertEnabled,
                                     onCheckedChange = { checked ->
                                         breakAlertEnabled = checked
-                                        prefs.edit().putBoolean("continuous_break_alert", checked).apply()
+                                        wellnessPrefs.isBreakAlertEnabled = checked
                                     },
                                     colors = SwitchDefaults.colors(
                                         checkedThumbColor = Color.White,
@@ -305,6 +352,7 @@ fun SettingsScreen(
                             )
                             Spacer(modifier = Modifier.height(14.dp))
 
+                            // 2. Floating Screen-Time Pill Toggle
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -351,6 +399,282 @@ fun SettingsScreen(
                                         checkedThumbColor = Color.White,
                                         checkedTrackColor = BrandCyan
                                     )
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+                            androidx.compose.material3.HorizontalDivider(
+                                color = AppTheme.colors.border,
+                                thickness = 0.5.dp
+                            )
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            // 3. Audio & Alarm Sound Settings
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Pleasant Alert Sound",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = AppTheme.colors.textPrimary
+                                    )
+                                    Text(
+                                        text = "Plays alert audio or spoken voice reminder at 30 minutes",
+                                        fontSize = 12.sp,
+                                        color = AppTheme.colors.textSecondary
+                                    )
+                                }
+                                Switch(
+                                    checked = isAudioEnabled,
+                                    onCheckedChange = { checked ->
+                                        isAudioEnabled = checked
+                                        wellnessPrefs.isAudioEnabled = checked
+                                        if (!checked) soundManager.stop()
+                                    },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = Color.White,
+                                        checkedTrackColor = BrandCyan
+                                    )
+                                )
+                            }
+
+                            if (isAudioEnabled) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = "Alert Volume: ${(audioVolume * 100).toInt()}%",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = AppTheme.colors.textSecondary
+                                )
+                                Slider(
+                                    value = audioVolume,
+                                    onValueChange = { vol ->
+                                        audioVolume = vol
+                                        wellnessPrefs.audioVolume = vol
+                                    },
+                                    valueRange = 0.1f..1.0f,
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = BrandCyan,
+                                        activeTrackColor = BrandCyan
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(AppTheme.colors.surfaceElevated)
+                                        .border(1.dp, AppTheme.colors.border, RoundedCornerShape(12.dp))
+                                        .padding(12.dp)
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = "Sound: ${customAudioTitle ?: "Default Chime & Spoken Prompt"}",
+                                            fontSize = 12.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    try {
+                                                        audioPickerLauncher.launch(arrayOf("audio/*"))
+                                                    } catch (e: Exception) {}
+                                                },
+                                                modifier = Modifier.weight(1f).height(38.dp),
+                                                shape = RoundedCornerShape(10.dp)
+                                            ) {
+                                                Icon(Icons.Default.MusicNote, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(text = "Choose Song", fontSize = 11.5.sp)
+                                            }
+
+                                            OutlinedButton(
+                                                onClick = {
+                                                    if (isPreviewPlaying) {
+                                                        soundManager.stop()
+                                                        isPreviewPlaying = false
+                                                    } else {
+                                                        val uri = wellnessPrefs.customAudioUriString?.let { Uri.parse(it) }
+                                                        soundManager.playPreview(uri, audioVolume)
+                                                        isPreviewPlaying = true
+                                                    }
+                                                },
+                                                modifier = Modifier.weight(1f).height(38.dp),
+                                                shape = RoundedCornerShape(10.dp)
+                                            ) {
+                                                Icon(
+                                                    if (isPreviewPlaying) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(text = if (isPreviewPlaying) "Stop" else "Preview", fontSize = 11.5.sp)
+                                            }
+
+                                            if (customAudioTitle != null) {
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        wellnessPrefs.clearCustomAudio()
+                                                        customAudioTitle = null
+                                                        soundManager.stop()
+                                                        isPreviewPlaying = false
+                                                    },
+                                                    modifier = Modifier.size(38.dp),
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Delete, contentDescription = "Clear", tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+                            androidx.compose.material3.HorizontalDivider(
+                                color = AppTheme.colors.border,
+                                thickness = 0.5.dp
+                            )
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            // 4. Custom Video or 3D Animation Settings
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    text = "Visual Animation & Video",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = AppTheme.colors.textPrimary
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Shows friendly 3D walking man & drinking water, or your custom video",
+                                    fontSize = 12.sp,
+                                    color = AppTheme.colors.textSecondary
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(AppTheme.colors.surfaceElevated)
+                                        .border(1.dp, AppTheme.colors.border, RoundedCornerShape(12.dp))
+                                        .padding(12.dp)
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = "Active: ${customVideoTitle ?: "Default 3D Walking & Drinking Water"}",
+                                            fontSize = 12.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    try {
+                                                        videoPickerLauncher.launch(arrayOf("video/*"))
+                                                    } catch (e: Exception) {}
+                                                },
+                                                modifier = Modifier.weight(1f).height(38.dp),
+                                                shape = RoundedCornerShape(10.dp)
+                                            ) {
+                                                Icon(Icons.Default.Videocam, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(text = "Choose Video", fontSize = 11.5.sp)
+                                            }
+
+                                            if (customVideoTitle != null) {
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        wellnessPrefs.clearCustomVideo()
+                                                        customVideoTitle = null
+                                                    },
+                                                    modifier = Modifier.weight(1f).height(38.dp),
+                                                    shape = RoundedCornerShape(10.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text(text = "Use 3D Default", fontSize = 11.5.sp)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+                            androidx.compose.material3.HorizontalDivider(
+                                color = AppTheme.colors.border,
+                                thickness = 0.5.dp
+                            )
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            // 5. Gentle Vibration Toggle
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Gentle Vibration",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = AppTheme.colors.textPrimary
+                                    )
+                                    Text(
+                                        text = "Vibrates in gentle pulse rhythm at 30 minutes",
+                                        fontSize = 12.sp,
+                                        color = AppTheme.colors.textSecondary
+                                    )
+                                }
+                                Switch(
+                                    checked = isVibrationEnabled,
+                                    onCheckedChange = { checked ->
+                                        isVibrationEnabled = checked
+                                        wellnessPrefs.isVibrationEnabled = checked
+                                    },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = Color.White,
+                                        checkedTrackColor = BrandCyan
+                                    )
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            // 6. Test Alert & Experience Button
+                            Button(
+                                onClick = {
+                                    soundManager.startWellnessAlarm()
+                                    BreakAlertActivity.launch(context, autoStart = false)
+                                },
+                                modifier = Modifier.fillMaxWidth().height(46.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = BrandCyan)
+                            ) {
+                                Icon(Icons.Default.Timer, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Test 30-Min Wellness Alert Now",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.Black
                                 )
                             }
                         }
@@ -702,4 +1026,17 @@ private fun SettingsGroupCard(
             }
         }
     }
+}
+
+private fun getFileNameFromUri(context: Context, uri: Uri): String? {
+    var name: String? = null
+    try {
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (nameIndex != -1 && cursor.moveToFirst()) {
+                name = cursor.getString(nameIndex)
+            }
+        }
+    } catch (e: Exception) {}
+    return name ?: uri.lastPathSegment
 }

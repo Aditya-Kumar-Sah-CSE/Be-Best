@@ -12,6 +12,7 @@ FocusLock requires specific privileged Android permissions to enforce app limits
 | `android.permission.FOREGROUND_SERVICE` | Normal | Allows running background services for persistent monitoring and timer overlays. | Always declared in manifest. |
 | `android.permission.FOREGROUND_SERVICE_SPECIAL_USE` | Normal (Android 14+) | Declares specialized use-case for the floating screen time timer pill. | Meets Google Play Android 14 policy standards. |
 | `android.permission.POST_NOTIFICATIONS` | Runtime (Android 13+) | Required to post break reminders, quota warning alerts, and foreground service status. | Requested via runtime permission dialog on Android 13+. |
+| `android.permission.VIBRATE` | Normal | Allows gentle rhythmic vibration when the 30-minute continuous wellness reminder fires. | Automatically granted by Android. |
 | `android.permission.RECEIVE_BOOT_COMPLETED` | Normal | Triggers `BootRecoveryReceiver` on device reboot to re-register monitors and reset daily quotas. | Automatic on reboot. |
 | `android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | Special App Access | Prompts user to whitelist FocusLock from aggressive OEM task-killers (Xiaomi, Samsung, Huawei). | Optional setting with guide dialog. |
 | `android.permission.QUERY_ALL_PACKAGES` | Broad App Access | Allows `AppRepositoryImpl` to enumerate installed user apps for the selection screen. | Filtered to non-system launcher apps. |

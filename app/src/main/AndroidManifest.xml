@@ -14,6 +14,9 @@
     <!-- 3. Standard notification alerts for quota warnings (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Vibration for gentle wellness reminders -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
     <!-- 4. Internet access strictly for checking and downloading genuine in-app updates from GitHub -->
     <uses-permission android:name="android.permission.INTERNET" />
 

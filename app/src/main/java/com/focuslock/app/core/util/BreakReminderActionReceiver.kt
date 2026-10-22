@@ -19,11 +19,10 @@ class BreakReminderActionReceiver : BroadcastReceiver() {
                 BreakReminderHelper.snooze(context, minutes = 5L)
             }
             ACTION_DISMISS -> {
-                BreakReminderHelper.dismissReminderNotification(context)
-                BreakReminderHelper.resetSession(context)
+                BreakReminderHelper.dismiss(context)
             }
             ACTION_START_BREAK -> {
-                BreakReminderHelper.dismissReminderNotification(context)
+                BreakReminderHelper.startBreak(context)
                 try {
                     com.focuslock.app.presentation.breakalert.BreakAlertActivity.launch(context, autoStart = true)
                 } catch (e: Exception) {}

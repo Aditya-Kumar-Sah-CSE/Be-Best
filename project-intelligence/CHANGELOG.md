@@ -4,6 +4,22 @@ All notable changes to the FocusLock application and its architectural systems a
 
 ---
 
+## [v1.2.2] — 2026-10-22
+
+### Added
+- **Continuous 30-Minute Screen Wellness Reminder System**:
+  - Monotonic continuous screen-on session tracking (`BreakReminderHelper`).
+  - App switching across Instagram, YouTube, WhatsApp, Chrome, games never resets continuous timer.
+  - Turning the screen OFF cleanly resets session; turning screen ON starts fresh 30-minute session.
+  - Pleasant harmonic chime and warm spoken prompt: *"Please, sir! It's time to take care of yourself. Go for a short walk, rest your eyes, and drink a glass of water."*
+  - Custom audio and video file pickers via Storage Access Framework (`OpenDocument`) with persistable URI permission handling.
+  - High-fidelity 3D-styled animated walking character and drinking water glass Canvas animations, plus custom video loop player fallback.
+  - 3 clear user actions: "Take a 5-Minute Break", "Remind Me in 5 Minutes" (Snooze), and "Dismiss".
+  - Floating top timer displaying synchronized live countdown/usage (`◷ 00:00 / 30:00`) and active break status (`☕ Break 05:00`).
+  - Comprehensive wellness customization in `SettingsScreen` (audio on/off, volume slider, song/video pickers, vibration toggle, and instant preview/test).
+
+---
+
 ## [v1.2.1] — 2026-10-22
 
 ### Added

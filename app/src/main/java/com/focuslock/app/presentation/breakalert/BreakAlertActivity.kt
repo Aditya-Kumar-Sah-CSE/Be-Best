@@ -2,10 +2,15 @@ package com.focuslock.app.presentation.breakalert
 
 import android.content.Context
 import android.content.Intent
+import android.media.MediaPlayer
+import android.net.Uri
 import android.os.Bundle
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.VideoView
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.setContent
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -27,13 +32,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.LocalDrink
-import androidx.compose.material.icons.filled.SelfImprovement
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -41,6 +50,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -53,11 +63,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.focuslock.app.core.designsystem.AppTheme
+import androidx.compose.ui.viewinterop.AndroidView
 import com.focuslock.app.core.designsystem.BrandCyan
 import com.focuslock.app.core.designsystem.BrandIndigo
 import com.focuslock.app.core.designsystem.BrandTeal
@@ -71,7 +82,9 @@ import com.focuslock.app.core.designsystem.FocusLockTheme
 import com.focuslock.app.core.designsystem.Neutral200
 import com.focuslock.app.core.designsystem.Neutral400
 import com.focuslock.app.core.designsystem.SuccessGreen
-import com.focuslock.app.core.util.TimeUtils
+import com.focuslock.app.core.util.BreakReminderHelper
+import com.focuslock.app.core.wellness.WellnessPreferences
+import com.focuslock.app.core.wellness.WellnessSoundManager
 import kotlinx.coroutines.delay
 
 class BreakAlertActivity : ComponentActivity() {
@@ -83,28 +96,26 @@ class BreakAlertActivity : ComponentActivity() {
         setContent {
             FocusLockTheme {
                 BackHandler {
-                    // Back press snoozes the reminder and finishes
-                    com.focuslock.app.core.util.BreakReminderHelper.snooze(this@BreakAlertActivity, 5L)
+                    BreakReminderHelper.snooze(this@BreakAlertActivity, 5L)
                     finish()
                 }
 
                 BreakAlertScreen(
                     autoStart = autoStart,
                     onStartBreak = {
-                        // Start break session
+                        BreakReminderHelper.startBreak(this@BreakAlertActivity)
                     },
                     onBreakCompleted = {
-                        com.focuslock.app.core.util.BreakReminderHelper.resetSession(this@BreakAlertActivity)
-                        com.focuslock.app.core.util.BreakReminderHelper.showBreakCompletedNotification(this@BreakAlertActivity)
-                        com.focuslock.app.core.util.BreakReminderHelper.dismissReminderNotification(this@BreakAlertActivity)
+                        BreakReminderHelper.resetSession(this@BreakAlertActivity)
+                        BreakReminderHelper.showBreakCompletedNotification(this@BreakAlertActivity)
+                        BreakReminderHelper.dismissReminderNotification(this@BreakAlertActivity)
                     },
-                    onRemindLater = {
-                        com.focuslock.app.core.util.BreakReminderHelper.snooze(this@BreakAlertActivity, 5L)
+                    onRemindIn5Minutes = {
+                        BreakReminderHelper.snooze(this@BreakAlertActivity, 5L)
                         finish()
                     },
-                    onDismissBreak = {
-                        com.focuslock.app.core.util.BreakReminderHelper.resetSession(this@BreakAlertActivity)
-                        com.focuslock.app.core.util.BreakReminderHelper.dismissReminderNotification(this@BreakAlertActivity)
+                    onDismiss = {
+                        BreakReminderHelper.dismiss(this@BreakAlertActivity)
                         finish()
                     }
                 )
@@ -120,6 +131,11 @@ class BreakAlertActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         isBreakAlertVisible = false
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        WellnessSoundManager.getInstance(this).stop()
     }
 
     companion object {
@@ -148,21 +164,34 @@ fun BreakAlertScreen(
     autoStart: Boolean = false,
     onStartBreak: () -> Unit = {},
     onBreakCompleted: () -> Unit = {},
-    onRemindLater: () -> Unit = {},
-    onDismissBreak: () -> Unit = {}
+    onRemindIn5Minutes: () -> Unit = {},
+    onDismiss: () -> Unit = {}
 ) {
-    // 5 minutes = 300 seconds break countdown
-    var remainingBreakSeconds by remember { mutableLongStateOf(300L) }
-    var isTimerRunning by remember { mutableStateOf(autoStart) }
-    var isCompleted by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val preferences = remember { WellnessPreferences.getInstance(context) }
+    val customVideoUriString = preferences.customVideoUriString
 
-    LaunchedEffect(isTimerRunning) {
-        while (isTimerRunning && remainingBreakSeconds > 0) {
+    val initialBreakSeconds = remember {
+        if (BreakReminderHelper.isBreakActive(context)) {
+            BreakReminderHelper.getRemainingBreakSeconds(context)
+        } else {
+            300L
+        }
+    }
+
+    var remainingBreakSeconds by remember { mutableLongStateOf(initialBreakSeconds) }
+    var isBreakInProgress by remember {
+        mutableStateOf(autoStart || BreakReminderHelper.isBreakActive(context))
+    }
+    var isBreakCompleted by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isBreakInProgress) {
+        while (isBreakInProgress && remainingBreakSeconds > 0) {
             delay(1000L)
             remainingBreakSeconds--
             if (remainingBreakSeconds <= 0L) {
-                isCompleted = true
-                isTimerRunning = false
+                isBreakCompleted = true
+                isBreakInProgress = false
                 onBreakCompleted()
             }
         }
@@ -170,10 +199,10 @@ fun BreakAlertScreen(
 
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 0.96f,
-        targetValue = 1.04f,
+        initialValue = 0.97f,
+        targetValue = 1.03f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2400, easing = FastOutSlowInEasing),
+            animation = tween(durationMillis = 2200, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "pulse_scale"
@@ -185,221 +214,167 @@ fun BreakAlertScreen(
             .background(DarkBackground)
             .statusBarsPadding()
             .navigationBarsPadding()
-            .padding(24.dp)
+            .padding(horizontal = 20.dp, vertical = 14.dp)
     ) {
         Column(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            Spacer(modifier = Modifier.height(8.dp))
-
             // Header Section
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                // Glowing Hydration & Walk Badge
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // Top Screen-Time Pill Badge
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xE60B132B))
+                        .border(1.dp, Color(0x4D38BDF8), RoundedCornerShape(16.dp))
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = if (isBreakInProgress) "☕ 5-Minute Wellness Break" else "⏱ 30:00 Continuous Screen Time",
+                        color = if (isBreakInProgress) SuccessGreen else BrandCyan,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Primary User Message
+                Text(
+                    text = "Please, sir! It's time to take care of yourself.",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Color.White,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 28.sp
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "You've been using your screen continuously for 30 minutes. Take a small break and refresh yourself.",
+                    fontSize = 13.5.sp,
+                    color = Neutral400,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 19.sp,
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Central Visual / 3D Animation Section
+            if (isBreakInProgress) {
+                // Active 5-minute break circular countdown
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .size(72.dp)
+                        .size(190.dp)
                         .scale(pulseScale)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.radialGradient(
-                                listOf(BrandCyan.copy(alpha = 0.35f), Color.Transparent)
-                            )
+                ) {
+                    val progress = (remainingBreakSeconds.toFloat() / 300f).coerceIn(0f, 1f)
+                    CircularProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier.size(180.dp),
+                        color = BrandCyan,
+                        strokeWidth = 8.dp,
+                        trackColor = DarkSurfaceElevated
+                    )
+
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        val minutes = remainingBreakSeconds / 60
+                        val seconds = remainingBreakSeconds % 60
+                        val formatted = String.format("%02d:%02d", minutes, seconds)
+
+                        Text(
+                            text = formatted,
+                            fontSize = 32.sp,
+                            fontWeight = FontWeight.Black,
+                            color = Color.White,
+                            letterSpacing = 1.sp
                         )
-                        .border(1.5.dp, BrandCyan.copy(alpha = 0.5f), CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.SelfImprovement,
-                        contentDescription = "Wellness Break",
-                        tint = BrandCyan,
-                        modifier = Modifier.size(36.dp)
-                    )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Text(
+                            text = if (remainingBreakSeconds > 0) "Rest your eyes" else "Break Complete! 🎉",
+                            fontSize = 12.sp,
+                            color = if (remainingBreakSeconds > 0) BrandTeal else SuccessGreen,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Text(
-                    text = "🚶 Time to Walk or Drink Water 💧",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color.White,
-                    textAlign = TextAlign.Center
+            } else if (!customVideoUriString.isNullOrBlank()) {
+                // Custom User-Selected Video Player
+                CustomVideoPlayerCard(
+                    videoUri = Uri.parse(customVideoUriString),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(190.dp)
                 )
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Text(
-                    text = "You've been using your screen continuously for 30 minutes.",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = BrandCyan,
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Text(
-                    text = "Take a 5-minute break, walk around, stretch, and drink some water.",
-                    fontSize = 13.sp,
-                    color = Neutral400,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 18.sp
+            } else {
+                // Dual 3D Animated Person Walking & Drinking Water
+                WellnessDualAnimationDisplay(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp)
                 )
             }
 
-            // Central 5-Minute Circular Countdown
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(190.dp)
-                    .scale(pulseScale)
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 3 Core Wellness Action Points
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                val progress = (remainingBreakSeconds.toFloat() / 300f).coerceIn(0f, 1f)
-
-                CircularProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.size(180.dp),
-                    color = BrandCyan,
-                    strokeWidth = 8.dp,
-                    trackColor = DarkSurfaceElevated
+                WellnessActionRow(
+                    icon = Icons.AutoMirrored.Filled.DirectionsWalk,
+                    iconTint = BrandTeal,
+                    title = "🚶 Go for a short walk.",
+                    subtitle = "Stretch your posture and walk around a bit."
                 )
 
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    val minutes = remainingBreakSeconds / 60
-                    val seconds = remainingBreakSeconds % 60
-                    val formatted = String.format("%02d:%02d", minutes, seconds)
+                WellnessActionRow(
+                    icon = Icons.Default.Visibility,
+                    iconTint = BrandCyan,
+                    title = "👀 Rest your eyes.",
+                    subtitle = "Look 20 feet away into the distance for 20 seconds."
+                )
 
-                    Text(
-                        text = formatted,
-                        fontSize = 32.sp,
-                        fontWeight = FontWeight.Black,
-                        color = Color.White,
-                        letterSpacing = 1.sp
-                    )
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    Text(
-                        text = if (remainingBreakSeconds > 0) "Rest your eyes" else "Break Complete! 🎉",
-                        fontSize = 12.sp,
-                        color = if (remainingBreakSeconds > 0) BrandTeal else SuccessGreen,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
+                WellnessActionRow(
+                    icon = Icons.Default.LocalDrink,
+                    iconTint = Color(0xFF38BDF8),
+                    title = "💧 Drink a glass of water.",
+                    subtitle = "Hydrate your body & brain to stay fresh & sharp."
+                )
             }
 
-            // Wellness Action Cards (Walk + Drink Water)
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // Bottom User Action Buttons
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Card 1: Drink Water
-                FocusCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    cornerRadius = 14.dp,
-                    backgroundColor = DarkSurface,
-                    borderColor = DarkBorder,
-                    contentPadding = 12.dp
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(BrandCyan.copy(alpha = 0.15f))
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.LocalDrink,
-                                contentDescription = "Drink Water",
-                                tint = BrandCyan,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(14.dp))
-
-                        Column {
-                            Text(
-                                text = "Drink a glass of water",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                            Text(
-                                text = "Rehydrate your brain to stay focused & sharp.",
-                                fontSize = 12.sp,
-                                color = Neutral400
-                            )
-                        }
-                    }
-                }
-
-                // Card 2: Stand Up and Walk
-                FocusCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    cornerRadius = 14.dp,
-                    backgroundColor = DarkSurface,
-                    borderColor = DarkBorder,
-                    contentPadding = 12.dp
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(BrandTeal.copy(alpha = 0.15f))
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.DirectionsWalk,
-                                contentDescription = "Walk Around",
-                                tint = BrandTeal,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(14.dp))
-
-                        Column {
-                            Text(
-                                text = "Stand up & walk around",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                            Text(
-                                text = "Stretch your posture and look 20 ft away.",
-                                fontSize = 12.sp,
-                                color = Neutral400
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Bottom Actions
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                if (!isTimerRunning && !isCompleted) {
+                if (!isBreakInProgress && !isBreakCompleted) {
+                    // Button 1: "Take a 5-Minute Break"
                     Button(
                         onClick = {
-                            isTimerRunning = true
+                            isBreakInProgress = true
+                            remainingBreakSeconds = 300L
                             onStartBreak()
                         },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(52.dp),
+                            .height(50.dp),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = BrandCyan)
                     ) {
@@ -407,42 +382,43 @@ fun BreakAlertScreen(
                             imageVector = Icons.Default.CheckCircle,
                             contentDescription = null,
                             tint = Color.Black,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(19.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Take a Break",
+                            text = "Take a 5-Minute Break",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.Black
                         )
                     }
 
+                    // Button 2 & 3: "Remind Me in 5 Minutes" & "Dismiss"
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         OutlinedButton(
-                            onClick = onRemindLater,
+                            onClick = onRemindIn5Minutes,
                             modifier = Modifier
                                 .weight(1f)
-                                .height(48.dp),
+                                .height(46.dp),
                             shape = RoundedCornerShape(14.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorderSubtle),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = Neutral200)
                         ) {
                             Text(
-                                text = "Remind Me Later",
+                                text = "Remind in 5m",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
 
                         OutlinedButton(
-                            onClick = onDismissBreak,
+                            onClick = onDismiss,
                             modifier = Modifier
                                 .weight(1f)
-                                .height(48.dp),
+                                .height(46.dp),
                             shape = RoundedCornerShape(14.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorderSubtle),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = Neutral400)
@@ -454,17 +430,18 @@ fun BreakAlertScreen(
                             )
                         }
                     }
-                } else if (isTimerRunning) {
+                } else if (isBreakInProgress) {
+                    // Break in progress controls
                     Button(
-                        onClick = onDismissBreak,
+                        onClick = onDismiss,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(52.dp),
+                            .height(50.dp),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = BrandTeal)
                     ) {
                         Text(
-                            text = "Break In Progress (Take a Walk & Hydrate)",
+                            text = "Break In Progress (Walking & Hydrating)",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.Black
@@ -472,7 +449,7 @@ fun BreakAlertScreen(
                     }
 
                     OutlinedButton(
-                        onClick = onRemindLater,
+                        onClick = onDismiss,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(44.dp),
@@ -480,15 +457,15 @@ fun BreakAlertScreen(
                         border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorderSubtle),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Neutral400)
                     ) {
-                        Text(text = "Remind Me Later", fontSize = 13.sp)
+                        Text(text = "End Break & Continue", fontSize = 13.sp)
                     }
                 } else {
-                    // Completed state
+                    // Break Completed
                     Button(
-                        onClick = onDismissBreak,
+                        onClick = onDismiss,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(52.dp),
+                            .height(50.dp),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen)
                     ) {
@@ -496,7 +473,7 @@ fun BreakAlertScreen(
                             imageVector = Icons.Default.CheckCircle,
                             contentDescription = null,
                             tint = Color.Black,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(19.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
@@ -509,5 +486,92 @@ fun BreakAlertScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun WellnessActionRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    iconTint: Color,
+    title: String,
+    subtitle: String
+) {
+    FocusCard(
+        modifier = Modifier.fillMaxWidth(),
+        cornerRadius = 14.dp,
+        backgroundColor = DarkSurface,
+        borderColor = DarkBorder,
+        contentPadding = 10.dp
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(iconTint.copy(alpha = 0.15f))
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = iconTint,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column {
+                Text(
+                    text = title,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Text(
+                    text = subtitle,
+                    fontSize = 11.5.sp,
+                    color = Neutral400
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun CustomVideoPlayerCard(
+    videoUri: Uri,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(DarkSurface)
+            .border(1.dp, DarkBorder, RoundedCornerShape(20.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { ctx ->
+                VideoView(ctx).apply {
+                    layoutParams = FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                    setOnPreparedListener { mp ->
+                        mp.isLooping = true
+                        start()
+                    }
+                    setOnErrorListener { _, _, _ ->
+                        // If video fails, silent fallback
+                        true
+                    }
+                    setVideoURI(videoUri)
+                }
+            }
+        )
     }
 }

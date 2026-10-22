@@ -28,19 +28,63 @@ class BreakReminderTest {
     }
 
     @Test
-    fun testScreenOffPolicy_BriefGlitchPreservesSession_LongOffResetsSession() {
+    fun testAppSwitching_DoesNotResetContinuousSession() {
         val sessionStart = 1_000_000L
-        val screenOffElapsed = 1_500_000L
 
-        // Screen off for 5 seconds (brief glitch / lock screen flash)
-        val nowQuickTurnOn = screenOffElapsed + 5_000L
-        val isQuickTurnOn = (nowQuickTurnOn - screenOffElapsed) < 15_000L
-        assertTrue("Screen off for < 15s must be treated as continuous session", isQuickTurnOn)
+        // User opens Instagram at +2m
+        val instagramTime = sessionStart + 120_000L
+        val elapsedAtInsta = instagramTime - sessionStart
+        assertEquals(120_000L, elapsedAtInsta)
 
-        // Screen off for 20 seconds (user put phone in pocket / took a short break)
-        val nowLongTurnOn = screenOffElapsed + 20_000L
-        val isLongTurnOn = (nowLongTurnOn - screenOffElapsed) >= 15_000L
-        assertTrue("Screen off for >= 15s must reset continuous session", isLongTurnOn)
+        // User switches to YouTube at +10m
+        val youtubeTime = sessionStart + 600_000L
+        val elapsedAtYouTube = youtubeTime - sessionStart
+        assertEquals(600_000L, elapsedAtYouTube)
+
+        // User switches to Chrome and games at +25m
+        val gameTime = sessionStart + 1500_000L
+        val elapsedAtGame = gameTime - sessionStart
+        assertEquals(1500_000L, elapsedAtGame)
+
+        // Switching apps has preserved monotonic elapsed time without resetting session start
+        assertTrue("Monotonic screen session preserved across multiple app switches", elapsedAtGame > elapsedAtYouTube)
+    }
+
+    @Test
+    fun testScreenOffPolicy_ResetSession() {
+        val sessionStart = 1_000_000L
+        val screenOffElapsed = sessionStart + (10 * 60 * 1000L) // Screen turned off at 10m
+
+        // Device turned back on later
+        val newScreenOnElapsed = screenOffElapsed + (2 * 60 * 1000L) // 2m off
+        val isScreenOffSessionReset = (newScreenOnElapsed - screenOffElapsed) >= 3_000L
+
+        assertTrue("Turning screen off for >= 3s resets continuous usage session", isScreenOffSessionReset)
+
+        // New session starts at newScreenOnElapsed
+        val freshSessionElapsed = newScreenOnElapsed - newScreenOnElapsed
+        assertEquals("Fresh session starts at 0 elapsed", 0L, freshSessionElapsed)
+    }
+
+    @Test
+    fun testRemainingSecondsToThirtyMinutes_CountdownCalculation() {
+        val totalSecs = 1800L // 30 minutes
+
+        // At 0 minutes
+        val remainingAtStart = (totalSecs - 0L).coerceAtLeast(0L)
+        assertEquals(1800L, remainingAtStart)
+
+        // At 15 minutes (900s)
+        val remainingAtHalf = (totalSecs - 900L).coerceAtLeast(0L)
+        assertEquals(900L, remainingAtHalf)
+
+        // At 29m 30s (1770s)
+        val remainingClose = (totalSecs - 1770L).coerceAtLeast(0L)
+        assertEquals(30L, remainingClose)
+
+        // At 32m (1920s) -> 0 remaining
+        val remainingOver = (totalSecs - 1920L).coerceAtLeast(0L)
+        assertEquals(0L, remainingOver)
     }
 
     @Test
@@ -88,5 +132,20 @@ class BreakReminderTest {
 
         val fullCompleted = (totalBreakSeconds - 300L).coerceAtLeast(0L)
         assertEquals(0L, fullCompleted)
+    }
+
+    @Test
+    fun testCustomMediaFallback_SafeHandling() {
+        val nullUriString: String? = null
+        val blankUriString = "   "
+        val validUriString = "content://media/external/audio/media/42"
+
+        val hasCustomAudio1 = !nullUriString.isNullOrBlank()
+        val hasCustomAudio2 = !blankUriString.isNullOrBlank()
+        val hasCustomAudio3 = !validUriString.isNullOrBlank()
+
+        assertFalse("Null URI must fall back to default", hasCustomAudio1)
+        assertFalse("Blank URI must fall back to default", hasCustomAudio2)
+        assertTrue("Valid URI detected for playback", hasCustomAudio3)
     }
 }

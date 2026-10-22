@@ -44,12 +44,19 @@ This directory indexes all key source files in `app/src/main/java/com/focuslock/
 | :--- | :--- | :--- |
 | `RealUsageTracker.kt` | `class RealUsageTracker` | Queries `UsageStatsManager.queryEvents()` to measure exact foreground session duration. |
 
+### Wellness & Audio Engine (`core/wellness/`)
+| File Path | Primary Class / Type | Responsibility |
+| :--- | :--- | :--- |
+| `WellnessPreferences.kt` | `class WellnessPreferences` | Preferences for alert audio/video URIs, volume, and vibration toggles. |
+| `WellnessSoundManager.kt` | `class WellnessSoundManager` | Plays pleasant synthesized ambient chimes, custom songs, and TTS voice prompts. |
+
 ### Core Utilities (`core/util/`)
 | File Path | Primary Class / Type | Responsibility |
 | :--- | :--- | :--- |
 | `InstagramPackageHelper.kt` | `object InstagramPackageHelper` | Identifies and matches Instagram package variations (`com.instagram.android`, `lite`). |
 | `TimeUtils.kt` | `object TimeUtils` | Date formatting, midnight epoch calculations, seconds-to-string formatters. |
-| `BreakReminderHelper.kt` | `class BreakReminderHelper` | 30-minute continuous screen monitor and notification builder. |
+| `BreakReminderHelper.kt` | `class BreakReminderHelper` | 30-minute monotonic continuous screen timer, 5-min break tracker, and alarm dispatcher. |
+| `BreakReminderActionReceiver.kt` | `class BreakReminderActionReceiver` | Handles notification actions (Take Break, Snooze 5m, Dismiss). |
 
 ---
 
@@ -100,7 +107,8 @@ This directory indexes all key source files in `app/src/main/java/com/focuslock/
 | :--- | :--- | :--- |
 | `MainActivity.kt` | `class MainActivity : ComponentActivity` | Hosts Compose root, navigation graph, and update checks. |
 | `BlockingActivity.kt` | `class BlockingActivity : ComponentActivity` | Fullscreen lockscreen overlay displayed when limit is reached. |
-| `BreakAlertActivity.kt` | `class BreakAlertActivity : ComponentActivity` | 30-minute break prompt activity. |
+| `BreakAlertActivity.kt` | `class BreakAlertActivity : ComponentActivity` | 30-minute wellness break alert activity with user actions. |
+| `WellnessAnimations.kt` | `@Composable WalkingPerson3DAnimation, DrinkingWater3DAnimation` | 3D-styled animated walking character and drinking water glass canvas components. |
 | `navigation/NavGraph.kt` | `@Composable FocusLockNavGraph` | Compose navigation controller defining routes for all screens. |
 | `dashboard/DashboardScreen.kt` | `@Composable DashboardScreen` | Main dashboard displaying screen time, top apps, quick focus, and status. |
 | `apps/AppSelectionScreen.kt` | `@Composable AppSelectionScreen` | Searchable list of installed apps to enable/disable protection. |

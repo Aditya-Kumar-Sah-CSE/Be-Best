@@ -357,6 +357,20 @@ object FloatingTimerManager {
         val tv = timerTextView ?: return
         val context = tv.context ?: return
 
+        // Check if user is currently taking a 5-minute break
+        if (BreakReminderHelper.isBreakActive(context)) {
+            val breakSecs = BreakReminderHelper.getRemainingBreakSeconds(context)
+            val mm = breakSecs / 60
+            val ss = breakSecs % 60
+            tv.text = String.format(Locale.US, "☕ Break %02d:%02d", mm, ss)
+            tv.setTextColor(Color.parseColor("#34D399")) // Calming emerald green
+            (overlayView?.background as? GradientDrawable)?.setStroke(
+                dpToPx(context, 1),
+                Color.parseColor("#10B981")
+            )
+            return
+        }
+
         val continuousMillis = BreakReminderHelper.getContinuousScreenUsageMillis(context)
         val elapsedSecs = (continuousMillis / 1000L).coerceAtLeast(0L)
         val mm = elapsedSecs / 60
