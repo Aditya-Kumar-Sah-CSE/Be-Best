@@ -25,6 +25,10 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.TouchApp
+import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -64,7 +68,12 @@ import com.focuslock.app.core.designsystem.FocusLockTopBar
 import com.focuslock.app.core.designsystem.Neutral200
 import com.focuslock.app.core.designsystem.Neutral400
 import com.focuslock.app.core.designsystem.UsageProgressRing
+import com.focuslock.app.core.designsystem.WarningAmber
+import com.focuslock.app.core.designsystem.SuccessGreen
 import com.focuslock.app.core.util.TimeUtils
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun AppDetailsScreen(
@@ -95,7 +104,7 @@ fun AppDetailsScreen(
             item {
                 Spacer(modifier = Modifier.height(8.dp))
                 FocusLockTopBar(
-                    title = "App Details",
+                    title = if (uiState.isInstagram) "Instagram Activity" else "App Details",
                     navigationIcon = Icons.AutoMirrored.Filled.ArrowBack,
                     onNavigationClick = onBack
                 )
@@ -136,7 +145,11 @@ fun AppDetailsScreen(
                     Spacer(modifier = Modifier.height(12.dp))
 
                     Text(
-                        text = uiState.displayName,
+                        text = if (uiState.isInstagram && uiState.instagramVariant.isNotBlank()) {
+                            uiState.instagramVariant
+                        } else {
+                            uiState.displayName
+                        },
                         fontSize = 22.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = Color.White
@@ -252,6 +265,207 @@ fun AppDetailsScreen(
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = Neutral200
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Sessions & Engagement Card
+            item {
+                FocusCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    cornerRadius = 18.dp,
+                    backgroundColor = DarkSurface,
+                    borderColor = DarkBorder,
+                    contentPadding = 16.dp
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Sessions & Engagement",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "Ground Truth",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = SuccessGreen
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        StatDetailRow(
+                            label = "Detected Sessions",
+                            value = "${uiState.sessionCount} sessions",
+                            source = "UsageEvents"
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        StatDetailRow(
+                            label = "Average Session",
+                            value = TimeUtils.formatDurationShort(uiState.averageSessionSeconds),
+                            source = "Calculated"
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        StatDetailRow(
+                            label = "Longest Session",
+                            value = TimeUtils.formatDurationShort(uiState.longestSessionSeconds),
+                            source = "UsageEvents"
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        StatDetailRow(
+                            label = "First Activity Today",
+                            value = formatTimeOfDay(uiState.firstActivityAt),
+                            source = "System Event"
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        StatDetailRow(
+                            label = "Last Activity Today",
+                            value = formatTimeOfDay(uiState.lastActivityAt),
+                            source = "System Event"
+                        )
+                    }
+                }
+            }
+
+            // Activity Estimation & Privacy Guard Card
+            item {
+                FocusCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    cornerRadius = 18.dp,
+                    backgroundColor = DarkSurface,
+                    borderColor = DarkBorder,
+                    contentPadding = 16.dp
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Activity Estimation",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "Privacy Protected",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = BrandCyan
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        StatDetailRow(
+                            label = "Scroll Interactions",
+                            value = "~${uiState.approximateScrollCount} observed",
+                            source = "Accessibility (Approximate)"
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        StatDetailRow(
+                            label = "Reels Viewed",
+                            value = "Unavailable",
+                            source = "Not exposed by OS API"
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        StatDetailRow(
+                            label = "Likes / Comments / DMs",
+                            value = "Unsupported",
+                            source = "Zero text/screen logging"
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(DarkSurfaceElevated)
+                                .padding(10.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Security,
+                                    contentDescription = null,
+                                    tint = SuccessGreen,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Strict Privacy Guard: Screen content, messages, and credentials are never captured, read, or transmitted.",
+                                    fontSize = 11.sp,
+                                    color = Neutral400,
+                                    lineHeight = 15.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Official Instagram API Status Card (For Instagram packages)
+            if (uiState.isInstagram) {
+                item {
+                    FocusCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        cornerRadius = 18.dp,
+                        backgroundColor = DarkSurface,
+                        borderColor = DarkBorder,
+                        contentPadding = 16.dp
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Public,
+                                        contentDescription = null,
+                                        tint = BrandCyan,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Official Meta Graph API",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+
+                                Text(
+                                    text = "Independent",
+                                    fontSize = 11.sp,
+                                    color = Neutral400
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Text(
+                                text = "Status: ${uiState.instagramApiStatus.title}",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = BrandTeal
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Meta's official Graph API is restricted to creator/business accounts and does not expose personal browsing history, reels watched, or private usage. FocusLock provides 100% autonomous local tracking.",
+                                fontSize = 11.5.sp,
+                                color = Neutral400,
+                                lineHeight = 16.sp
                             )
                         }
                     }
@@ -401,7 +615,7 @@ fun AppDetailsScreen(
                 }
             }
 
-            // Instagram Reels / YouTube Shorts scope clarification
+            // Scope clarification for Shorts / Reels
             if (uiState.isReelsOrShortsParent) {
                 item {
                     Box(
@@ -469,6 +683,38 @@ fun AppDetailsScreen(
 }
 
 @Composable
+private fun StatDetailRow(
+    label: String,
+    value: String,
+    source: String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                fontSize = 13.sp,
+                color = Color.White
+            )
+            Text(
+                text = source,
+                fontSize = 10.5.sp,
+                color = Neutral400
+            )
+        }
+        Text(
+            text = value,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = BrandCyan
+        )
+    }
+}
+
+@Composable
 private fun UsageHistoryRow(
     label: String,
     durationSeconds: Long,
@@ -507,4 +753,10 @@ private fun UsageHistoryRow(
             strokeCap = StrokeCap.Round
         )
     }
+}
+
+private fun formatTimeOfDay(millis: Long): String {
+    if (millis <= 0L) return "None detected"
+    val sdf = SimpleDateFormat("hh:mm a", Locale.US)
+    return sdf.format(Date(millis))
 }

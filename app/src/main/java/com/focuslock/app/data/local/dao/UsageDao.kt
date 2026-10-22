@@ -19,11 +19,28 @@ interface UsageDao {
     @Query("SELECT * FROM daily_usage WHERE packageName = :packageName AND localDate = :date LIMIT 1")
     suspend fun getDailyUsageForApp(packageName: String, date: String): DailyUsageEntity?
 
+    @Query("SELECT * FROM daily_usage WHERE packageName = :packageName ORDER BY localDate DESC LIMIT 30")
+    suspend fun getHistoricalUsageForApp(packageName: String): List<DailyUsageEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdateDailyUsage(dailyUsage: DailyUsageEntity)
 
     @Query("UPDATE daily_usage SET usedSeconds = usedSeconds + :additionalSeconds, updatedAt = :timestamp, isBlocked = (usedSeconds + :additionalSeconds >= quotaSeconds) WHERE packageName = :packageName AND localDate = :date")
     suspend fun incrementUsage(packageName: String, date: String, additionalSeconds: Long, timestamp: Long)
+
+    @Query("UPDATE daily_usage SET approximateScrollCount = approximateScrollCount + :count, lastActivityAt = :timestamp, updatedAt = :timestamp WHERE packageName = :packageName AND localDate = :date")
+    suspend fun incrementScrollCount(packageName: String, date: String, count: Int = 1, timestamp: Long)
+
+    @Query("UPDATE daily_usage SET sessionCount = :count, longestSessionSeconds = :longestSecs, firstActivityAt = :firstAt, lastActivityAt = :lastAt, updatedAt = :now WHERE packageName = :packageName AND localDate = :date")
+    suspend fun updateSessionStats(
+        packageName: String,
+        date: String,
+        count: Int,
+        longestSecs: Long,
+        firstAt: Long,
+        lastAt: Long,
+        now: Long
+    )
 
     @Query("UPDATE daily_usage SET emergencyUsed = 1, emergencyStartedAt = :startedAt, emergencyExpiresAt = :expiresAt, emergencyElapsedRealtimeAtStart = :elapsedStart, updatedAt = :now WHERE packageName = :packageName AND localDate = :date")
     suspend fun recordEmergencySession(
@@ -37,6 +54,23 @@ interface UsageDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertUsageSession(session: UsageSessionEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertUsageSessions(sessions: List<UsageSessionEntity>)
+
+    @Query("SELECT * FROM usage_sessions WHERE packageName = :packageName AND sessionDate = :date ORDER BY startedAt ASC")
+    suspend fun getSessionsForAppAndDate(packageName: String, date: String): List<UsageSessionEntity>
+
+    @Query("DELETE FROM usage_sessions WHERE packageName = :packageName AND sessionDate = :date")
+    suspend fun deleteSessionsForAppAndDate(packageName: String, date: String)
+
+    @Transaction
+    suspend fun replaceSessionsForAppAndDate(packageName: String, date: String, sessions: List<UsageSessionEntity>) {
+        deleteSessionsForAppAndDate(packageName, date)
+        if (sessions.isNotEmpty()) {
+            insertUsageSessions(sessions)
+        }
+    }
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertProtectionEvent(event: ProtectionEventEntity)

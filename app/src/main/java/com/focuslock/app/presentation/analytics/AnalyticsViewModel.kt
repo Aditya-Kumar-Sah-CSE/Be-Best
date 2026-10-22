@@ -5,6 +5,7 @@ import android.graphics.drawable.Drawable
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.focuslock.app.FocusLockApp
+import com.focuslock.app.core.util.BreakReminderHelper
 import com.focuslock.app.core.util.TimeUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,12 +36,14 @@ data class AppUsageBreakdownItem(
 data class AnalyticsUiState(
     val selectedFilter: AnalyticsTimeFilter = AnalyticsTimeFilter.DAILY,
     val totalUsageSeconds: Long = 0L,
+    val continuousScreenTimeTodaySeconds: Long = 0L,
     val comparisonPercentage: Int? = null,
     val isIncrease: Boolean = false,
     val dayLabels: List<String> = emptyList(),
     val dayValues: List<Float> = emptyList(),
     val selectedDayIndex: Int = 6,
     val appUsageList: List<AppUsageBreakdownItem> = emptyList(),
+    val dataFreshnessTimestamp: Long = System.currentTimeMillis(),
     val isLoading: Boolean = false
 )
 
@@ -69,7 +72,7 @@ class AnalyticsViewModel(application: Application) : AndroidViewModel(applicatio
 
     private fun loadAnalytics(filter: AnalyticsTimeFilter) {
         viewModelScope.launch {
-            val (totalUsage, dayLabels, dayValues, comparisons, appsList) = withContext(Dispatchers.IO) {
+            val (totalUsage, dayLabels, dayValues, comparisons, appsList, continuousSecs) = withContext(Dispatchers.IO) {
                 val cal = Calendar.getInstance()
                 val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
                 val dayFormat = SimpleDateFormat("EEE", Locale.US)
@@ -158,29 +161,33 @@ class AnalyticsViewModel(application: Application) : AndroidViewModel(applicatio
                 appItems.sortByDescending { it.usedSeconds }
 
                 val periodTotal = if (filter == AnalyticsTimeFilter.DAILY) todayUsage else values.sum().toLong()
+                val continuousScreenUsage = (BreakReminderHelper.getContinuousScreenUsageMillis(app) / 1000L).coerceAtLeast(0L)
 
-                return@withContext Tuple5(periodTotal, labels, values, Pair(compPercent, increase), appItems)
+                return@withContext Tuple6(periodTotal, labels, values, Pair(compPercent, increase), appItems, continuousScreenUsage)
             }
 
             _uiState.value = AnalyticsUiState(
                 selectedFilter = filter,
                 totalUsageSeconds = totalUsage,
+                continuousScreenTimeTodaySeconds = continuousSecs,
                 comparisonPercentage = comparisons.first,
                 isIncrease = comparisons.second,
                 dayLabels = dayLabels,
                 dayValues = dayValues,
                 selectedDayIndex = dayLabels.lastIndex.coerceAtLeast(0),
                 appUsageList = appsList,
+                dataFreshnessTimestamp = System.currentTimeMillis(),
                 isLoading = false
             )
         }
     }
 
-    private data class Tuple5<A, B, C, D, E>(
+    private data class Tuple6<A, B, C, D, E, F>(
         val first: A,
         val second: B,
         val third: C,
         val fourth: D,
-        val fifth: E
+        val fifth: E,
+        val sixth: F
     )
 }

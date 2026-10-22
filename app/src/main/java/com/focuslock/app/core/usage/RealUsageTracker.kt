@@ -13,6 +13,7 @@ import com.focuslock.app.core.util.TimeUtils
 import com.focuslock.app.data.local.dao.ProtectedAppDao
 import com.focuslock.app.data.local.dao.UsageDao
 import com.focuslock.app.data.local.entity.DailyUsageEntity
+import com.focuslock.app.data.local.entity.UsageSessionEntity
 import com.focuslock.app.domain.model.AppCategory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -24,6 +25,17 @@ data class LaunchableAppInfo(
     val isProtected: Boolean,
     val dailyLimitSeconds: Long,
     val icon: Drawable? = null
+)
+
+data class AppSessionSummary(
+    val packageName: String,
+    val totalForegroundSeconds: Long = 0L,
+    val sessionCount: Int = 0,
+    val averageSessionSeconds: Long = 0L,
+    val longestSessionSeconds: Long = 0L,
+    val firstActivityAt: Long = 0L,
+    val lastActivityAt: Long = 0L,
+    val sessions: List<UsageSessionEntity> = emptyList()
 )
 
 class RealUsageTracker(
@@ -55,7 +67,6 @@ class RealUsageTracker(
             packageManager.queryIntentActivities(launcherIntent, 0)
         }
 
-        val protectedAppsMap = protectedAppDao.getAllProtectedAppsFlow()
         val existingProtected = protectedAppDao.getActiveProtectedApps().associateBy { it.packageName }
         val ownPackage = context.packageName
 
@@ -88,12 +99,23 @@ class RealUsageTracker(
             .sortedWith(compareByDescending<LaunchableAppInfo> { it.isProtected }.thenBy { it.appName.lowercase() })
     }
 
-    private fun getForegroundTimeFromEvents(manager: UsageStatsManager, packageName: String, startDay: Long, now: Long): Long {
-        return try {
-            val events = manager.queryEvents(startDay, now) ?: return 0L
-            var totalMs = 0L
-            var lastResumeMs = 0L
+    /**
+     * Reconstructs discrete user foreground sessions from Android UsageEvents.
+     * Prevents overlapping double-counting and merges sub-activity bounces (<2s).
+     */
+    fun extractSessionsFromEvents(
+        packageName: String,
+        startDay: Long,
+        now: Long,
+        dateStr: String
+    ): AppSessionSummary {
+        val manager = usageStatsManager ?: return AppSessionSummary(packageName)
+        val rawSessions = mutableListOf<UsageSessionEntity>()
+
+        try {
+            val events = manager.queryEvents(startDay, now) ?: return AppSessionSummary(packageName)
             val event = android.app.usage.UsageEvents.Event()
+            var sessionStartMs = 0L
 
             while (events.hasNextEvent()) {
                 events.getNextEvent(event)
@@ -101,32 +123,93 @@ class RealUsageTracker(
                     when (event.eventType) {
                         android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED,
                         android.app.usage.UsageEvents.Event.MOVE_TO_FOREGROUND -> {
-                            lastResumeMs = event.timeStamp
+                            if (sessionStartMs == 0L) {
+                                sessionStartMs = event.timeStamp
+                            }
                         }
                         android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED,
                         android.app.usage.UsageEvents.Event.ACTIVITY_STOPPED,
                         android.app.usage.UsageEvents.Event.MOVE_TO_BACKGROUND -> {
-                            if (lastResumeMs > 0L) {
-                                val duration = event.timeStamp - lastResumeMs
-                                if (duration > 0) {
-                                    totalMs += duration
+                            if (sessionStartMs > 0L) {
+                                val durationMs = event.timeStamp - sessionStartMs
+                                if (durationMs >= 1000L) {
+                                    rawSessions.add(
+                                        UsageSessionEntity(
+                                            packageName = packageName,
+                                            startedAt = sessionStartMs,
+                                            endedAt = event.timeStamp,
+                                            durationSeconds = durationMs / 1000L,
+                                            source = "USAGE_EVENTS",
+                                            sessionDate = dateStr
+                                        )
+                                    )
                                 }
-                                lastResumeMs = 0L
+                                sessionStartMs = 0L
                             }
                         }
                     }
                 }
             }
-            if (lastResumeMs > 0L && lastResumeMs <= now) {
-                val duration = now - lastResumeMs
-                if (duration > 0) {
-                    totalMs += duration
+
+            // Handle active in-progress session if app is currently in foreground
+            if (sessionStartMs > 0L && sessionStartMs <= now) {
+                val durationMs = now - sessionStartMs
+                if (durationMs >= 1000L) {
+                    rawSessions.add(
+                        UsageSessionEntity(
+                            packageName = packageName,
+                            startedAt = sessionStartMs,
+                            endedAt = now,
+                            durationSeconds = durationMs / 1000L,
+                            source = "USAGE_EVENTS",
+                            sessionDate = dateStr
+                        )
+                    )
                 }
             }
-            totalMs / 1000L
         } catch (e: Exception) {
-            0L
+            return AppSessionSummary(packageName)
         }
+
+        if (rawSessions.isEmpty()) {
+            return AppSessionSummary(packageName)
+        }
+
+        // Merge contiguous or bouncing sub-activity sessions within 2 seconds
+        val mergedSessions = mutableListOf<UsageSessionEntity>()
+        var current = rawSessions[0]
+
+        for (i in 1 until rawSessions.size) {
+            val next = rawSessions[i]
+            if (next.startedAt - current.endedAt <= 2000L) {
+                current = current.copy(
+                    endedAt = maxOf(current.endedAt, next.endedAt),
+                    durationSeconds = current.durationSeconds + next.durationSeconds
+                )
+            } else {
+                mergedSessions.add(current)
+                current = next
+            }
+        }
+        mergedSessions.add(current)
+
+        val totalSeconds = mergedSessions.sumOf { it.durationSeconds }
+        val sessionCount = mergedSessions.size
+        val avgSeconds = if (sessionCount > 0) totalSeconds / sessionCount else 0L
+        val longestSeconds = mergedSessions.maxOfOrNull { it.durationSeconds } ?: 0L
+        val firstAt = mergedSessions.firstOrNull()?.startedAt ?: 0L
+        val lastAt = mergedSessions.lastOrNull()?.endedAt ?: 0L
+
+        return AppSessionSummary(
+            packageName = packageName,
+            totalForegroundSeconds = totalSeconds,
+            sessionCount = sessionCount,
+            averageSessionSeconds = avgSeconds,
+            longestSessionSeconds = longestSeconds,
+            firstActivityAt = firstAt,
+            lastActivityAt = lastAt,
+            sessions = mergedSessions
+        )
     }
 
     private fun getForegroundTimesFromEventsBatch(manager: UsageStatsManager, startDay: Long, now: Long): Map<String, Long> {
@@ -143,7 +226,9 @@ class RealUsageTracker(
                 when (event.eventType) {
                     android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED,
                     android.app.usage.UsageEvents.Event.MOVE_TO_FOREGROUND -> {
-                        lastResumeMap[pkg] = event.timeStamp
+                        if ((lastResumeMap[pkg] ?: 0L) == 0L) {
+                            lastResumeMap[pkg] = event.timeStamp
+                        }
                     }
                     android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED,
                     android.app.usage.UsageEvents.Event.ACTIVITY_STOPPED,
@@ -180,12 +265,21 @@ class RealUsageTracker(
      * Guaranteed never to leak yesterday's pre-bucketed UsageStats into today.
      */
     fun queryAccurateUsageSeconds(packageName: String): Long {
-        val manager = usageStatsManager ?: return 0L
         val startDay = timeProvider.getStartOfDayMillis()
         val now = timeProvider.currentTimeMillis()
         if (now <= startDay) return 0L
+        val dateStr = TimeUtils.formatDate(timeProvider.getTodayLocalDate())
+        return extractSessionsFromEvents(packageName, startDay, now, dateStr).totalForegroundSeconds
+    }
 
-        return getForegroundTimeFromEvents(manager, packageName, startDay, now)
+    /**
+     * Queries detailed session breakdown and stats for a specific package.
+     */
+    suspend fun queryDetailedAppSessions(packageName: String): AppSessionSummary = withContext(Dispatchers.IO) {
+        val startDay = timeProvider.getStartOfDayMillis()
+        val now = timeProvider.currentTimeMillis()
+        val dateStr = TimeUtils.formatDate(timeProvider.getTodayLocalDate())
+        extractSessionsFromEvents(packageName, startDay, now, dateStr)
     }
 
     /**
@@ -193,19 +287,22 @@ class RealUsageTracker(
      * Reconciles usage into Room without carrying over prior days.
      */
     suspend fun reconcileWithAndroidUsageStats(targetPackages: List<String>) = withContext(Dispatchers.IO) {
-        val manager = usageStatsManager ?: return@withContext
         val startDay = timeProvider.getStartOfDayMillis()
         val now = timeProvider.currentTimeMillis()
         val todayDate = TimeUtils.formatDate(timeProvider.getTodayLocalDate())
         val tzId = timeProvider.getZoneId().id
 
-        val batchMeasured = getForegroundTimesFromEventsBatch(manager, startDay, now)
-
         for (pkg in targetPackages) {
-            val measuredSeconds = batchMeasured[pkg] ?: 0L
+            val sessionSummary = extractSessionsFromEvents(pkg, startDay, now, todayDate)
+            val measuredSeconds = sessionSummary.totalForegroundSeconds
             val existing = usageDao.getDailyUsageForApp(pkg, todayDate)
             val app = protectedAppDao.getAppByPackageName(pkg)
             val quota = app?.dailyLimitSeconds ?: 1800L
+
+            // Store parsed sessions in Room
+            if (sessionSummary.sessions.isNotEmpty()) {
+                usageDao.replaceSessionsForAppAndDate(pkg, todayDate, sessionSummary.sessions)
+            }
 
             if (existing != null) {
                 val isLegacyGhostAnomaly = existing.usedSeconds >= 14400L && measuredSeconds in 1L..3600L
@@ -215,15 +312,19 @@ class RealUsageTracker(
                     maxOf(measuredSeconds, existing.usedSeconds)
                 }
 
-                if (reconciledSeconds != existing.usedSeconds) {
-                    usageDao.insertOrUpdateDailyUsage(
-                        existing.copy(
-                            usedSeconds = reconciledSeconds,
-                            isBlocked = reconciledSeconds >= existing.quotaSeconds,
-                            updatedAt = now
-                        )
+                usageDao.insertOrUpdateDailyUsage(
+                    existing.copy(
+                        usedSeconds = reconciledSeconds,
+                        isBlocked = reconciledSeconds >= existing.quotaSeconds,
+                        sessionCount = maxOf(existing.sessionCount, sessionSummary.sessionCount),
+                        longestSessionSeconds = maxOf(existing.longestSessionSeconds, sessionSummary.longestSessionSeconds),
+                        firstActivityAt = if (existing.firstActivityAt > 0L) existing.firstActivityAt else sessionSummary.firstActivityAt,
+                        lastActivityAt = maxOf(existing.lastActivityAt, sessionSummary.lastActivityAt),
+                        activitySource = "USAGE_EVENTS",
+                        activityConfidence = "EXACT",
+                        updatedAt = now
                     )
-                }
+                )
             } else if (measuredSeconds > 0L) {
                 usageDao.insertOrUpdateDailyUsage(
                     DailyUsageEntity(
@@ -233,6 +334,12 @@ class RealUsageTracker(
                         usedSeconds = measuredSeconds,
                         quotaSeconds = quota,
                         isBlocked = measuredSeconds >= quota,
+                        sessionCount = sessionSummary.sessionCount,
+                        longestSessionSeconds = sessionSummary.longestSessionSeconds,
+                        firstActivityAt = sessionSummary.firstActivityAt,
+                        lastActivityAt = sessionSummary.lastActivityAt,
+                        activitySource = "USAGE_EVENTS",
+                        activityConfidence = "EXACT",
                         updatedAt = now
                     )
                 )
@@ -245,13 +352,20 @@ class RealUsageTracker(
      * Guaranteed to update Room immediately so quota checks are authoritative.
      */
     suspend fun syncPackageUsage(packageName: String): Long = withContext(Dispatchers.IO) {
-        val measuredSeconds = queryAccurateUsageSeconds(packageName)
+        val startDay = timeProvider.getStartOfDayMillis()
+        val now = timeProvider.currentTimeMillis()
         val todayDate = TimeUtils.formatDate(timeProvider.getTodayLocalDate())
         val tzId = timeProvider.getZoneId().id
-        val now = timeProvider.currentTimeMillis()
+
+        val sessionSummary = extractSessionsFromEvents(packageName, startDay, now, todayDate)
+        val measuredSeconds = sessionSummary.totalForegroundSeconds
         val existing = usageDao.getDailyUsageForApp(packageName, todayDate)
         val app = protectedAppDao.getAppByPackageName(packageName)
         val quota = app?.dailyLimitSeconds ?: 1800L
+
+        if (sessionSummary.sessions.isNotEmpty()) {
+            usageDao.replaceSessionsForAppAndDate(packageName, todayDate, sessionSummary.sessions)
+        }
 
         if (existing != null) {
             val isLegacyGhostAnomaly = existing.usedSeconds >= 14400L && measuredSeconds in 1L..3600L
@@ -261,15 +375,19 @@ class RealUsageTracker(
                 maxOf(measuredSeconds, existing.usedSeconds)
             }
 
-            if (reconciledSeconds != existing.usedSeconds) {
-                usageDao.insertOrUpdateDailyUsage(
-                    existing.copy(
-                        usedSeconds = reconciledSeconds,
-                        isBlocked = reconciledSeconds >= existing.quotaSeconds,
-                        updatedAt = now
-                    )
+            usageDao.insertOrUpdateDailyUsage(
+                existing.copy(
+                    usedSeconds = reconciledSeconds,
+                    isBlocked = reconciledSeconds >= existing.quotaSeconds,
+                    sessionCount = maxOf(existing.sessionCount, sessionSummary.sessionCount),
+                    longestSessionSeconds = maxOf(existing.longestSessionSeconds, sessionSummary.longestSessionSeconds),
+                    firstActivityAt = if (existing.firstActivityAt > 0L) existing.firstActivityAt else sessionSummary.firstActivityAt,
+                    lastActivityAt = maxOf(existing.lastActivityAt, sessionSummary.lastActivityAt),
+                    activitySource = "USAGE_EVENTS",
+                    activityConfidence = "EXACT",
+                    updatedAt = now
                 )
-            }
+            )
             reconciledSeconds
         } else if (measuredSeconds > 0L) {
             usageDao.insertOrUpdateDailyUsage(
@@ -280,6 +398,12 @@ class RealUsageTracker(
                     usedSeconds = measuredSeconds,
                     quotaSeconds = quota,
                     isBlocked = measuredSeconds >= quota,
+                    sessionCount = sessionSummary.sessionCount,
+                    longestSessionSeconds = sessionSummary.longestSessionSeconds,
+                    firstActivityAt = sessionSummary.firstActivityAt,
+                    lastActivityAt = sessionSummary.lastActivityAt,
+                    activitySource = "USAGE_EVENTS",
+                    activityConfidence = "EXACT",
                     updatedAt = now
                 )
             )

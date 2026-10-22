@@ -5,9 +5,9 @@ import android.graphics.drawable.Drawable
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.focuslock.app.FocusLockApp
+import com.focuslock.app.core.instagram.InstagramApiManager
+import com.focuslock.app.core.usage.InstagramPackageHelper
 import com.focuslock.app.core.util.TimeUtils
-import com.focuslock.app.data.local.entity.ProtectedAppEntity
-import com.focuslock.app.domain.engine.AppQuotaEvaluation
 import com.focuslock.app.domain.model.AppCategory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,7 +31,18 @@ data class AppDetailsUiState(
     val isBlocked: Boolean = false,
     val blockedReason: String? = null,
     val appIcon: Drawable? = null,
-    val isReelsOrShortsParent: Boolean = false
+    val isReelsOrShortsParent: Boolean = false,
+    val sessionCount: Int = 0,
+    val averageSessionSeconds: Long = 0L,
+    val longestSessionSeconds: Long = 0L,
+    val firstActivityAt: Long = 0L,
+    val lastActivityAt: Long = 0L,
+    val approximateScrollCount: Int = 0,
+    val activitySource: String = "UsageEvents (Ground Truth)",
+    val activityConfidence: String = "Exact Foreground Timestamp",
+    val isInstagram: Boolean = false,
+    val instagramVariant: String = "",
+    val instagramApiStatus: InstagramApiManager.ApiStatus = InstagramApiManager.ApiStatus.NOT_CONNECTED
 ) {
     val consumedPercentage: Int
         get() = if (dailyLimitSeconds > 0) {
@@ -56,12 +67,17 @@ class AppDetailsViewModel(application: Application) : AndroidViewModel(applicati
             } catch (e: Exception) {
                 // Ignore if usage access not granted
             }
+
             val protectedApp = appRepo.getApp(packageName)
             val evaluation = quotaEngine.evaluateQuota(packageName)
             val icon = appRepo.getAppIcon(packageName)
 
-            val isParentReelsOrShorts = packageName.contains("instagram", ignoreCase = true) ||
-                    packageName.contains("youtube", ignoreCase = true)
+            val isInstagram = InstagramPackageHelper.isInstagramPackage(packageName)
+            val instagramVariant = if (isInstagram) {
+                InstagramPackageHelper.getInstagramVariantLabel(packageName)
+            } else ""
+
+            val isParentReelsOrShorts = isInstagram || packageName.contains("youtube", ignoreCase = true)
 
             val appName = protectedApp?.displayName
                 ?: try {
@@ -74,8 +90,10 @@ class AppDetailsViewModel(application: Application) : AndroidViewModel(applicati
             val category = protectedApp?.let { AppCategory.fromString(it.category) }
                 ?: AppCategory.inferCategory(packageName)
 
-            // Query genuine Room historical usage
-            val (yesterdayUsage, last7DaysUsage) = withContext(Dispatchers.IO) {
+            val todayStr = TimeUtils.getTodayDateString()
+
+            // Query genuine Room historical usage and detailed sessions
+            val (yesterdayUsage, last7DaysUsage, sessionSummary, dailyUsage) = withContext(Dispatchers.IO) {
                 val cal = Calendar.getInstance()
                 cal.add(Calendar.DAY_OF_YEAR, -1)
                 val yesterdayStr = String.format(Locale.US, "%04d-%02d-%02d", cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH))
@@ -89,8 +107,20 @@ class AppDetailsViewModel(application: Application) : AndroidViewModel(applicati
                     val pastUsage = usageDao.getDailyUsageForApp(packageName, pastDateStr)?.usedSeconds ?: 0L
                     sevenDaysTotal += pastUsage
                 }
-                Pair(yUsage, sevenDaysTotal)
+
+                val sessions = app.realUsageTracker.queryDetailedAppSessions(packageName)
+                val daily = usageDao.getDailyUsageForApp(packageName, todayStr)
+
+                Tuple4(yUsage, sevenDaysTotal, sessions, daily)
             }
+
+            val sessionCount = maxOf(dailyUsage?.sessionCount ?: 0, sessionSummary.sessionCount)
+            val longestSession = maxOf(dailyUsage?.longestSessionSeconds ?: 0L, sessionSummary.longestSessionSeconds)
+            val avgSession = if (sessionCount > 0) evaluation.usedSeconds / sessionCount else 0L
+            val firstAt = if ((dailyUsage?.firstActivityAt ?: 0L) > 0L) dailyUsage!!.firstActivityAt else sessionSummary.firstActivityAt
+            val lastAt = maxOf(dailyUsage?.lastActivityAt ?: 0L, sessionSummary.lastActivityAt)
+            val scrollCount = dailyUsage?.approximateScrollCount ?: 0
+            val apiStatus = InstagramApiManager.getApiStatus(getApplication())
 
             _uiState.value = AppDetailsUiState(
                 packageName = packageName,
@@ -105,7 +135,18 @@ class AppDetailsViewModel(application: Application) : AndroidViewModel(applicati
                 isBlocked = evaluation.isBlocked,
                 blockedReason = evaluation.blockedReason,
                 appIcon = icon,
-                isReelsOrShortsParent = isParentReelsOrShorts
+                isReelsOrShortsParent = isParentReelsOrShorts,
+                sessionCount = sessionCount,
+                averageSessionSeconds = avgSession,
+                longestSessionSeconds = longestSession,
+                firstActivityAt = firstAt,
+                lastActivityAt = lastAt,
+                approximateScrollCount = scrollCount,
+                activitySource = "UsageEvents (Ground Truth)",
+                activityConfidence = "Exact System Timestamp",
+                isInstagram = isInstagram,
+                instagramVariant = instagramVariant,
+                instagramApiStatus = apiStatus
             )
         }
     }
@@ -134,4 +175,11 @@ class AppDetailsViewModel(application: Application) : AndroidViewModel(applicati
             loadAppDetails(state.packageName)
         }
     }
+
+    private data class Tuple4<A, B, C, D>(
+        val first: A,
+        val second: B,
+        val third: C,
+        val fourth: D
+    )
 }

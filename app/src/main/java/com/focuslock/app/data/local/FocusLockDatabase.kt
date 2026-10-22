@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.focuslock.app.data.local.dao.FocusSessionDao
 import com.focuslock.app.data.local.dao.ProtectedAppDao
 import com.focuslock.app.data.local.dao.UsageDao
@@ -24,7 +26,7 @@ import com.focuslock.app.data.local.entity.UserSettingsEntity
         ProtectionEventEntity::class,
         UserSettingsEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class FocusLockDatabase : RoomDatabase() {
@@ -38,12 +40,24 @@ abstract class FocusLockDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: FocusLockDatabase? = null
 
-        val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
-            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE daily_usage ADD COLUMN emergencyUsed INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE daily_usage ADD COLUMN emergencyStartedAt INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE daily_usage ADD COLUMN emergencyExpiresAt INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE daily_usage ADD COLUMN emergencyElapsedRealtimeAtStart INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE daily_usage ADD COLUMN sessionCount INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE daily_usage ADD COLUMN longestSessionSeconds INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE daily_usage ADD COLUMN firstActivityAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE daily_usage ADD COLUMN lastActivityAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE daily_usage ADD COLUMN approximateScrollCount INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE daily_usage ADD COLUMN activitySource TEXT NOT NULL DEFAULT 'USAGE_EVENTS'")
+                db.execSQL("ALTER TABLE daily_usage ADD COLUMN activityConfidence TEXT NOT NULL DEFAULT 'EXACT'")
             }
         }
 
@@ -54,7 +68,7 @@ abstract class FocusLockDatabase : RoomDatabase() {
                     FocusLockDatabase::class.java,
                     "focuslock_local.db"
                 )
-                    .addMigrations(MIGRATION_2_3)
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

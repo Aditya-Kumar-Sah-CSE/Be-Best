@@ -23,5 +23,12 @@ data class DailyUsageEntity(
     val emergencyStartedAt: Long = 0L,
     val emergencyExpiresAt: Long = 0L,
     val emergencyElapsedRealtimeAtStart: Long = 0L,
+    val sessionCount: Int = 0,
+    val longestSessionSeconds: Long = 0L,
+    val firstActivityAt: Long = 0L,
+    val lastActivityAt: Long = 0L,
+    val approximateScrollCount: Int = 0,
+    val activitySource: String = "USAGE_EVENTS",
+    val activityConfidence: String = "EXACT",
     val updatedAt: Long = System.currentTimeMillis()
 )

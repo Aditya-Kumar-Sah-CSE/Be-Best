@@ -222,6 +222,46 @@ fun AnalyticsScreen(
                                         }
                                     }
                                 }
+
+                                Spacer(modifier = Modifier.height(14.dp))
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(DarkSurfaceElevated)
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = "Continuous Screen-On",
+                                            fontSize = 11.5.sp,
+                                            color = Neutral400
+                                        )
+                                        Text(
+                                            text = TimeUtils.formatDurationShort(uiState.continuousScreenTimeTodaySeconds),
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = BrandTeal
+                                        )
+                                    }
+
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text(
+                                            text = "Source",
+                                            fontSize = 11.5.sp,
+                                            color = Neutral400
+                                        )
+                                        Text(
+                                            text = "UsageEvents Ground Truth",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = SuccessGreen
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

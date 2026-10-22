@@ -163,7 +163,57 @@ class FakeUsageDao : UsageDao {
         }
     }
 
-    override suspend fun insertUsageSession(session: UsageSessionEntity) {}
+    override suspend fun getHistoricalUsageForApp(packageName: String): List<DailyUsageEntity> =
+        usageMap.values.filter { it.packageName == packageName }.sortedByDescending { it.localDate }
+
+    override suspend fun incrementScrollCount(packageName: String, date: String, count: Int, timestamp: Long) {
+        val existing = getDailyUsageForApp(packageName, date)
+        if (existing != null) {
+            usageMap[key(packageName, date)] = existing.copy(
+                approximateScrollCount = existing.approximateScrollCount + count,
+                lastActivityAt = timestamp,
+                updatedAt = timestamp
+            )
+        }
+    }
+
+    override suspend fun updateSessionStats(
+        packageName: String,
+        date: String,
+        count: Int,
+        longestSecs: Long,
+        firstAt: Long,
+        lastAt: Long,
+        now: Long
+    ) {
+        val existing = getDailyUsageForApp(packageName, date)
+        if (existing != null) {
+            usageMap[key(packageName, date)] = existing.copy(
+                sessionCount = count,
+                longestSessionSeconds = longestSecs,
+                firstActivityAt = firstAt,
+                lastActivityAt = lastAt,
+                updatedAt = now
+            )
+        }
+    }
+
+    private val sessionList = mutableListOf<UsageSessionEntity>()
+
+    override suspend fun insertUsageSession(session: UsageSessionEntity) {
+        sessionList.add(session)
+    }
+
+    override suspend fun insertUsageSessions(sessions: List<UsageSessionEntity>) {
+        sessionList.addAll(sessions)
+    }
+
+    override suspend fun getSessionsForAppAndDate(packageName: String, date: String): List<UsageSessionEntity> =
+        sessionList.filter { it.packageName == packageName && it.sessionDate == date }
+
+    override suspend fun deleteSessionsForAppAndDate(packageName: String, date: String) {
+        sessionList.removeAll { it.packageName == packageName && it.sessionDate == date }
+    }
 
     override suspend fun insertProtectionEvent(event: ProtectionEventEntity) {}
 

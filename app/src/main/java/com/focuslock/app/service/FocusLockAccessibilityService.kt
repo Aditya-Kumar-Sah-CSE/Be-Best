@@ -97,6 +97,14 @@ class FocusLockAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
         val eventType = event.eventType
+        if (eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
+            val pkg = event.packageName?.toString() ?: return
+            if (!isExcludedPackage(pkg)) {
+                recordScrollInteraction(pkg)
+            }
+            return
+        }
+
         if (eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
             eventType != AccessibilityEvent.TYPE_WINDOWS_CHANGED) return
 
@@ -342,6 +350,30 @@ class FocusLockAccessibilityService : AccessibilityService() {
                     FocusLockApp.instance.realUsageTracker.syncPackageUsage(prevPkg)
                 } catch (e: Exception) {}
             }
+        }
+    }
+
+    private var lastScrollTimeMs = 0L
+
+    /**
+     * Privacy-Preserving Activity Estimation:
+     * Counts approximate scroll events without inspecting or logging text, UI hierarchy,
+     * messages, credentials, or capturing any screenshots.
+     */
+    private fun recordScrollInteraction(packageName: String) {
+        val now = System.currentTimeMillis()
+        if (now - lastScrollTimeMs < 500L) return
+        lastScrollTimeMs = now
+        val todayStr = com.focuslock.app.core.util.TimeUtils.getTodayDateString()
+        serviceScope.launch {
+            try {
+                FocusLockApp.instance.database.usageDao().incrementScrollCount(
+                    packageName = packageName,
+                    date = todayStr,
+                    count = 1,
+                    timestamp = now
+                )
+            } catch (e: Exception) {}
         }
     }
 
