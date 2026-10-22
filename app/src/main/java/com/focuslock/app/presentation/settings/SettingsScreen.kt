@@ -108,6 +108,12 @@ fun SettingsScreen(
     var breakAlertEnabled by remember {
         mutableStateOf(prefs.getBoolean("continuous_break_alert", true))
     }
+    var floatingTimerEnabled by remember {
+        mutableStateOf(com.focuslock.app.core.overlay.FloatingTimerManager.isFloatingTimerEnabled(context))
+    }
+    var hasOverlayPermission by remember {
+        mutableStateOf(com.focuslock.app.core.overlay.FloatingTimerManager.hasOverlayPermission(context))
+    }
 
     Scaffold(
         containerColor = AppTheme.colors.background,
@@ -267,6 +273,62 @@ fun SettingsScreen(
                                     onCheckedChange = { checked ->
                                         breakAlertEnabled = checked
                                         prefs.edit().putBoolean("continuous_break_alert", checked).apply()
+                                    },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = Color.White,
+                                        checkedTrackColor = BrandCyan
+                                    )
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+                            androidx.compose.material3.HorizontalDivider(
+                                color = AppTheme.colors.border,
+                                thickness = 0.5.dp
+                            )
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Floating Screen-Time Pill",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = AppTheme.colors.textPrimary
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Displays a draggable pill (◷ 00:00 / 30:00) over apps showing live continuous screen usage.",
+                                        fontSize = 12.sp,
+                                        color = AppTheme.colors.textSecondary,
+                                        lineHeight = 16.sp
+                                    )
+                                    if (floatingTimerEnabled && !hasOverlayPermission) {
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = "⚠️ Overlay permission required. Tap to grant.",
+                                            fontSize = 11.sp,
+                                            color = com.focuslock.app.core.designsystem.WarningAmber,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.clickable {
+                                                com.focuslock.app.core.overlay.FloatingTimerManager.requestOverlayPermission(context)
+                                            }
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Switch(
+                                    checked = floatingTimerEnabled,
+                                    onCheckedChange = { checked ->
+                                        floatingTimerEnabled = checked
+                                        if (checked && !com.focuslock.app.core.overlay.FloatingTimerManager.hasOverlayPermission(context)) {
+                                            com.focuslock.app.core.overlay.FloatingTimerManager.requestOverlayPermission(context)
+                                        }
+                                        com.focuslock.app.core.overlay.FloatingTimerManager.setFloatingTimerEnabled(context, checked)
                                     },
                                     colors = SwitchDefaults.colors(
                                         checkedThumbColor = Color.White,

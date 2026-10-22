@@ -349,6 +349,7 @@ class FocusLockAccessibilityService : AccessibilityService() {
         recordPreviousSession()
         breakMonitorJob?.cancel()
         activeMonitoringJob?.cancel()
+        com.focuslock.app.core.overlay.FloatingTimerManager.hide()
         try {
             unregisterReceiver(screenReceiver)
         } catch (e: Exception) {}

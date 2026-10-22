@@ -221,8 +221,8 @@ fun BreakAlertScreen(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
-                    text = "Time for a break!",
-                    fontSize = 26.sp,
+                    text = "🚶 Time to Walk or Drink Water 💧",
+                    fontSize = 24.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = Color.White,
                     textAlign = TextAlign.Center
@@ -231,8 +231,8 @@ fun BreakAlertScreen(
                 Spacer(modifier = Modifier.height(6.dp))
 
                 Text(
-                    text = "You've been using your phone for 30 minutes.",
-                    fontSize = 15.sp,
+                    text = "You've been using your screen continuously for 30 minutes.",
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = BrandCyan,
                     textAlign = TextAlign.Center
@@ -241,7 +241,7 @@ fun BreakAlertScreen(
                 Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
-                    text = "Take a 5-minute walk, stretch, and drink some water.",
+                    text = "Take a 5-minute break, walk around, stretch, and drink some water.",
                     fontSize = 13.sp,
                     color = Neutral400,
                     textAlign = TextAlign.Center,
@@ -411,27 +411,48 @@ fun BreakAlertScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Start 5-Minute Break",
+                            text = "Take a Break",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.Black
                         )
                     }
 
-                    OutlinedButton(
-                        onClick = onRemindLater,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorderSubtle),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Neutral200)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text(
-                            text = "Remind Me Later",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        OutlinedButton(
+                            onClick = onRemindLater,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorderSubtle),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Neutral200)
+                        ) {
+                            Text(
+                                text = "Remind Me Later",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = onDismissBreak,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorderSubtle),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Neutral400)
+                        ) {
+                            Text(
+                                text = "Dismiss",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
                 } else if (isTimerRunning) {
                     Button(

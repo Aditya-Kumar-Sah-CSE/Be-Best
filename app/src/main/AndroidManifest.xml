@@ -20,6 +20,9 @@
     <!-- 5. Request package installation permission for in-app updates on Android 8.0+ -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- 6. Display floating screen-time timer overlay pill over apps -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
     <!-- Query declaration for installed launchable apps (Compliant alternative to QUERY_ALL_PACKAGES) -->
     <queries>
         <intent>
@@ -114,6 +117,8 @@
             android:exported="false">
             <intent-filter>
                 <action android:name="com.focuslock.app.ACTION_SNOOZE_BREAK_REMINDER" />
+                <action android:name="com.focuslock.app.ACTION_DISMISS_BREAK_REMINDER" />
+                <action android:name="com.focuslock.app.ACTION_START_BREAK" />
             </intent-filter>
         </receiver>
 

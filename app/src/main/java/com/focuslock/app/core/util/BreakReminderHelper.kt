@@ -60,9 +60,8 @@ object BreakReminderHelper {
         val screenOffElapsed = prefs.getLong(KEY_SCREEN_OFF_ELAPSED, 0L)
         val sessionStart = prefs.getLong(KEY_SESSION_START_ELAPSED, 0L)
 
-        // If screen was off for more than 15 seconds, reset continuous timer.
-        // Otherwise (brief screen glitch / pocket check), treat as continuous.
-        val wasBriefOff = screenOffElapsed > 0L && (nowElapsed - screenOffElapsed) < 15_000L
+        // When screen turns on after being off, reset continuous timer for new continuous session
+        val wasBriefOff = screenOffElapsed > 0L && (nowElapsed - screenOffElapsed) < 5_000L
 
         if (sessionStart == 0L || !wasBriefOff) {
             prefs.edit()
@@ -70,9 +69,10 @@ object BreakReminderHelper {
                 .remove(KEY_SCREEN_OFF_ELAPSED)
                 .apply()
         } else {
-            // Keep existing sessionStart, clear off time
+            // Keep existing sessionStart for momentary glitches (< 5s), clear off time
             prefs.edit().remove(KEY_SCREEN_OFF_ELAPSED).apply()
         }
+        com.focuslock.app.core.overlay.FloatingTimerManager.onScreenOn(context)
     }
 
     fun onScreenOff(context: Context) {
@@ -80,6 +80,7 @@ object BreakReminderHelper {
         getPrefs(context).edit()
             .putLong(KEY_SCREEN_OFF_ELAPSED, nowElapsed)
             .apply()
+        com.focuslock.app.core.overlay.FloatingTimerManager.onScreenOff(context)
     }
 
     fun resetSession(context: Context) {
@@ -89,6 +90,7 @@ object BreakReminderHelper {
             .remove(KEY_SCREEN_OFF_ELAPSED)
             .remove(KEY_SNOOZE_UNTIL_ELAPSED)
             .apply()
+        com.focuslock.app.core.overlay.FloatingTimerManager.refresh(context)
     }
 
     fun snooze(context: Context, minutes: Long = 5L) {
@@ -170,7 +172,7 @@ object BreakReminderHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Action 1: Start 5-Minute Break
+        // Action 1: Take a Break
         val startBreakIntent = Intent(context, BreakAlertActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(BreakAlertActivity.EXTRA_AUTO_START, true)
@@ -193,16 +195,27 @@ object BreakReminderHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        // Action 3: Dismiss
+        val dismissIntent = Intent(context, BreakReminderActionReceiver::class.java).apply {
+            action = BreakReminderActionReceiver.ACTION_DISMISS
+        }
+        val dismissPendingIntent = PendingIntent.getBroadcast(
+            context,
+            1004,
+            dismissIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("Time for a break!")
-            .setSubText("30 min screen time")
-            .setContentText("You've been using your phone for 30 minutes. Take a 5-minute walk, stretch, and drink some water.")
+            .setContentTitle("🚶 Time to Walk or Drink Water 💧")
+            .setSubText("30m continuous screen time")
+            .setContentText("You've been using your screen continuously for 30 minutes. Take a 5-minute break, walk around, stretch, and drink some water.")
             .setStyle(
                 NotificationCompat.BigTextStyle()
-                    .setBigContentTitle("Time for a break!")
-                    .setSummaryText("30 min screen time")
-                    .bigText("You've been using your phone for 30 minutes.\nTake a 5-minute walk, stretch, and drink some water.")
+                    .setBigContentTitle("🚶 Time to Walk or Drink Water 💧")
+                    .setSummaryText("30m continuous screen time")
+                    .bigText("You've been using your screen continuously for 30 minutes. Take a 5-minute break, walk around, stretch, and drink some water.")
             )
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
@@ -210,13 +223,18 @@ object BreakReminderHelper {
             .setContentIntent(openPendingIntent)
             .addAction(
                 android.R.drawable.ic_media_play,
-                "Start 5-Minute Break",
+                "Take a Break",
                 startBreakPendingIntent
             )
             .addAction(
                 android.R.drawable.ic_menu_close_clear_cancel,
                 "Remind Me Later",
                 snoozePendingIntent
+            )
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                "Dismiss",
+                dismissPendingIntent
             )
             .build()
 

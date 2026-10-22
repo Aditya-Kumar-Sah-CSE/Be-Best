@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -86,12 +87,14 @@ fun PermissionStatusScreen(
     var hasAccessibility by remember { mutableStateOf(false) }
     var hasNotifications by remember { mutableStateOf(false) }
     var hasBatteryOpt by remember { mutableStateOf(false) }
+    var hasOverlay by remember { mutableStateOf(false) }
 
     fun refresh() {
         hasUsageAccess = checkUsageAccess(context)
         hasAccessibility = checkAccessibilityEnabled(context)
         hasNotifications = NotificationManagerCompat.from(context).areNotificationsEnabled()
         hasBatteryOpt = BatteryOptimizationHelper.isIgnoringBatteryOptimizations(context)
+        hasOverlay = com.focuslock.app.core.overlay.FloatingTimerManager.hasOverlayPermission(context)
     }
 
     LaunchedEffect(Unit) {
@@ -177,6 +180,19 @@ fun PermissionStatusScreen(
                             icon = Icons.Default.BatteryChargingFull,
                             onClick = {
                                 BatteryOptimizationHelper.requestIgnoreBatteryOptimizations(context)
+                            }
+                        )
+                    }
+
+                    // Card 5: Display Over Other Apps (Floating Timer Overlay)
+                    item {
+                        PermissionStatusCard(
+                            title = "Display Over Other Apps",
+                            subtitle = if (hasOverlay) "Enabled (Floating Pill Active)" else "Tap to Grant Permission for Floating Timer",
+                            isEnabled = hasOverlay,
+                            icon = Icons.Default.Timer,
+                            onClick = {
+                                com.focuslock.app.core.overlay.FloatingTimerManager.requestOverlayPermission(context)
                             }
                         )
                     }
