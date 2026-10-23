@@ -63,8 +63,8 @@
             android:name=".presentation.BlockingActivity"
             android:excludeFromRecents="true"
             android:exported="false"
-            android:launchMode="singleTop"
-            android:taskAffinity=""
+            android:launchMode="singleTask"
+            android:taskAffinity="com.focuslock.app.blocking"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.FocusLock.Blocking"
             tools:ignore="LockedOrientationActivity" />

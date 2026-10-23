@@ -8,7 +8,7 @@ This document inventories all major features of FocusLock, their active verifica
 
 | Feature | Primary Components | Status | Automated Test Coverage | Verification Method |
 | :--- | :--- | :--- | :--- | :--- |
-| **Instant App Blocking (Instagram, etc.)** | `FocusLockAccessibilityService`, `BlockingActivity`, `blockedPackagesCache` | **Active & Verified** | `ExternalAppBlockingTest.kt` | Unit tests passing; zero-lag (<50ms) blocking with no home screen flash. |
+| **Instant App Blocking (Instagram, etc.)** | `FocusLockAccessibilityService`, `BlockingActivity`, `blockedPackagesCache` | **Active & Verified (v1.2.7)** | `ExternalAppBlockingTest.kt` | Unit tests passing; zero-lag (<50ms) blocking with dedicated task affinity, BAL fallback, and no home screen flash. |
 | **Custom App Daily Limits** | `AppDetailsScreen`, `AppDetailsViewModel`, `ProtectedAppDao` | **Active & Verified** | `ExternalAppBlockingTest.kt` | Supports custom limits down to 1-minute test preset (`1 * 60L`). |
 | **Ground-Truth Usage Tracking** | `RealUsageTracker`, `UsageRepositoryImpl`, `InstagramPackageHelper` | **Active & Verified** | `InstagramAndSessionTrackingTest.kt` | Queries `UsageStatsManager.queryEvents()`; measures real foreground seconds. |
 | **Session Analytics & Longest Session** | `AnalyticsScreen`, `DailyUsageDao` (Migration 4) | **Active & Verified** | `AnalyticsCalculationTest.kt` | Aggregates session counts, longest sessions, scroll estimates. |
@@ -35,3 +35,14 @@ This document inventories all major features of FocusLock, their active verifica
   3. Removed `GLOBAL_ACTION_HOME` and delays to prevent screen flashing.
   4. Updated `BlockingActivity` text: *"Daily Limit Reached - You've used your Instagram allowance for today. Take a break and come back tomorrow."*
   5. Verified with 6 unit tests in `ExternalAppBlockingTest.kt`.
+
+### Robust BlockingActivity Elevation & Background Activity Launch Fallback (v1.2.7)
+- **Problem**: When restricted apps (such as Instagram) were opened or reopened from launcher, `BlockingActivity` sometimes failed to surface over the application due to `taskAffinity=""`, `singleTop`, and OEM/OS Background Activity Launch restrictions silently suppressing the intent without an exception.
+- **Solution**:
+  1. Configured `BlockingActivity` with `android:launchMode="singleTask"` and dedicated `android:taskAffinity="com.focuslock.app.blocking"` in `AndroidManifest.xml`.
+  2. Added `FLAG_ACTIVITY_REORDER_TO_FRONT` and Android 14+ `ActivityOptions` with background activity start mode allowed.
+  3. Added asynchronous 250ms safety displacement check: if `BlockingActivity` does not surface and restricted app remains foregrounded, falls back to `GLOBAL_ACTION_HOME` and displays high-priority notification.
+  4. Added `refreshBlockedPackagesCache()` invocation when user alters limits or toggles app protection in `AppDetailsViewModel` and `AppSelectionViewModel`.
+  5. Handled 0-second limit immediate blocking and accurate usage checks in cache initialization.
+  6. Verified with unit tests in `ExternalAppBlockingTest.kt`.
+

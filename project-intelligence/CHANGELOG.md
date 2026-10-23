@@ -1,6 +1,97 @@
 # Changelog — FocusLock
 
-All notable changes to the FocusLock application and its architectural systems are documented in this file.
+All notable changes to the FocusLock application, its architectural systems, and documentation are documented in this file.
+
+---
+
+## [v1.2.7] — 2026-10-23
+
+### Blocking Activity Launch Failure & No-Redirection Over Restricted Apps (Instagram) Fix
+- **Root Causes**:
+  1. `BlockingActivity` had `android:taskAffinity=""` and `android:launchMode="singleTop"` in `AndroidManifest.xml`. Empty affinity prevented Android's WindowManager from bringing an existing instance or task to the front over a newly foregrounded app (like Instagram) when invoked from a background `AccessibilityService`.
+  2. Launch Intent flags lacked `FLAG_ACTIVITY_REORDER_TO_FRONT` and did not provide Android 14+ (API 34+) `ActivityOptions.setPendingIntentBackgroundActivityStartMode`.
+  3. When OS Background Activity Launch (BAL) or OEM restrictions (Xiaomi MIUI/HyperOS, Oppo ColorOS, Vivo, Samsung OneUI) silently suppressed `startActivity`, no exception was thrown, marking `activityStarted = true` and preventing the fallback displacement to Home from ever executing.
+  4. Rapid consecutive window state events during Instagram app startup triggered the 250ms debounce before `BlockingActivity` became visible, dropping all subsequent launch requests and leaving Instagram in the foreground.
+  5. `AppDetailsViewModel.updateLimit()` unconditionally hardcoded `updateBlockedPackage(pkg, isBlocked = false)`, unblocking memory caches even when the user lowered the limit below tracked usage.
+  6. Neither `AppDetailsViewModel` nor `AppSelectionViewModel` called `refreshBlockedPackagesCache()` on limit or protection changes, keeping in-memory blocked caches stale.
+  7. In `refreshBlockedPackagesCache()`, applications configured with a `0L` daily limit or apps without a pre-existing Room `daily_usage` entity evaluated to unblocked.
+- **Fixes Applied**:
+  1. **SingleTask & Dedicated Affinity**: Updated `BlockingActivity` to `android:launchMode="singleTask"` and `android:taskAffinity="com.focuslock.app.blocking"` in `AndroidManifest.xml` to ensure clean task group elevation over restricted apps.
+  2. **Display Window Flags**: Added `setShowWhenLocked(true)` and `setTurnScreenOn(true)` to `BlockingActivity.onCreate()`.
+  3. **Android 14+ ActivityOptions & Intent Flags**: Added `FLAG_ACTIVITY_REORDER_TO_FRONT` and configured `ActivityOptions.makeBasic()` with background activity launch permission.
+  4. **Active Visibility Debouncing**: Fixed debounce condition in `launchBlockScreen` so that rapid launch attempts are only debounced if `BlockingActivity.isBlockingScreenVisible` is already true.
+  5. **Asynchronous Safety Displacement Verification**: Added a 250ms verification coroutine in `launchBlockScreen`. If `!BlockingActivity.isBlockingScreenVisible && currentForegroundPackage == packageName`, the service immediately displaces the restricted app to Home (`GLOBAL_ACTION_HOME`) and presents a high-priority blocking notification.
+  6. **ViewModel Cache Refreshing**: Replaced hardcoded unblocking with `FocusLockAccessibilityService.refreshBlockedPackagesCache()` across both `AppDetailsViewModel` and `AppSelectionViewModel`.
+  7. **0-Second Limit & Fast Reconcile in Cache**: `refreshBlockedPackagesCache()` immediately blocks apps with 0-second limits and queries `queryAccurateUsageSeconds` if a Room record is not yet present.
+- **Verification**:
+  - Regression unit tests in `ExternalAppBlockingTest.kt` passing.
+  - Full project test suite passed (`BUILD SUCCESSFUL in 4m 8s`).
+  - Full debug APK assembled (`assembleDebug` `BUILD SUCCESSFUL in 6m 17s`).
+
+---
+
+## [v1.2.6] — 2026-10-23
+
+### Background Screen-Off Timer Stop & Auto-Reset Fix (30-Minute Timer & 5-Minute Rest Timer)
+- **Root Causes**:
+  1. `BreakReminderHelper.resetSession()` unconditionally set `KEY_IS_SCREEN_ON = true` and `KEY_SESSION_START_ELAPSED = nowElapsed` even when the screen was physically off (such as when `completeBreak()` ran via AlarmManager while phone was locked).
+  2. `onScreenOn()` returned early if `isScreenOn` was true, preventing break completion checks and grace-period expiration from running when turning on the screen.
+  3. `getContinuousScreenUsageMillis()` did not verify if device was interactive, accumulating hours of background screen-off time into the 30-minute timer (`147:47 / 30:00` bug).
+  4. 5-minute screen-off grace period only used `Handler.postDelayed()`, which does not execute while the CPU sleeps in Android Doze mode.
+  5. `FloatingTimerService.onCreate()` and `FocusLockAccessibilityService.onCreate()` called `onScreenOn()` on background restarts even when screen was off.
+  6. `BreakAlertActivity.kt` "Break Complete! Continue ✓" button called `dismiss()` instead of resetting the continuous screen timer.
+- **Fixes Applied**:
+  1. **Interactive Screen Detection**: Added `isScreenInteractive(context)` using `PowerManager.isInteractive` with test overrides.
+  2. **Screen-Off Aware Session Reset**: `resetSession()` sets `KEY_IS_SCREEN_ON = false` and `KEY_SESSION_START_ELAPSED = 0L` when screen is off, preventing background accumulation.
+  3. **Zero Accumulation During Screen Off**: `getContinuousScreenUsageMillis()` returns `0L` when screen is off for >= 5 minutes and never adds screen-off duration to continuous usage.
+  4. **AlarmManager Deep Sleep Expiration**: Added `ACTION_SCREEN_OFF_EXPIRED` with `scheduleScreenOffGraceAlarm()` using `AlarmManager.RTC_WAKEUP` / `setExactAndAllowWhileIdle()` to reliably stop both the 30m continuous timer and 5m break timer after 5 minutes screen off in background.
+  5. **Accurate onScreenOn Evaluation**: `onScreenOn()` evaluates break completion and grace expiration before evaluating any session continuation.
+  6. **Polished Break Completion UI**: `BreakAlertActivity.kt` shows "🎉 Wellness Break Completed" and "You're refreshed and ready!" when break completes, and clicking "Break Complete! Continue ✓" resets the timer to 0:00.
+  7. **Service Lifecycle Alignment**: `FloatingTimerService` and `FocusLockAccessibilityService` check `isInteractive` before calling `onScreenOn()` or `show()`.
+- **Test Suite**:
+  - Added unit tests in `BreakReminderTest.kt` verifying that both 30m continuous screen time and 5m rest timer stop after 5m screen off, and background time is never accumulated. All 123+ unit tests passing.
+
+---
+
+## [v1.2.5] — 2026-10-23
+
+### Critical Production Bug Fixes & Reliability Enhancements
+- **Bug 1 — 10-Minute and 5-Minute Warnings System Implemented & Persisted**:
+  - **Root Cause**: Zero notification dispatch logic or database delivery tracking existed for daily quota warnings; `QuotaEngine` had only an unused 80% status without notification channels, persistence, or delivery tracking.
+  - **Database Migration (v4 -> v5)**: Added `MIGRATION_4_5` in `FocusLockDatabase` adding `warning10Triggered` and `warning5Triggered` columns to `DailyUsageEntity` and updated `UsageDao` to mark delivery atomically.
+  - **Dynamic Threshold Calculation**: Evaluates warnings based on actual configured quota:
+    - 10-Minute Warning: `remainingTime <= 600s` (e.g. 20:00 of 30:00 quota).
+    - 5-Minute Warning: `remainingTime <= 300s` (e.g. 25:00 of 30:00 quota).
+    - Block Enforced: `remainingTime <= 0s` (e.g. 30:00).
+  - **At-Most-Once Delivery Guarantee**: Warnings are delivered at most once per app per local calendar day, persisted across process deaths, service restarts, app switching, and reboots.
+  - **Startup Immediate Delivery**: If FocusLock starts when usage has already crossed a warning threshold, warnings are dispatched immediately without requiring prior thresholds.
+  - **Permission Check & Non-Silent Fallback**: Uses `NotificationManagerCompat.areNotificationsEnabled()`; if notifications are disabled/restricted, safely logs and triggers the on-screen `FloatingTimerManager` overlay alert as fallback.
+  - **Local Midnight Reset**: Automatically resets `warning10Triggered` and `warning5Triggered` flags at 12:00 AM local midnight.
+
+- **Bug 2 — Inconsistent Daily App Limit Enforcement & Instagram Keyboard Bypass Fix**:
+  - **Root Cause**:
+    1. Input Method Editors (soft keyboards like Gboard, Samsung Keyboard, SwiftKey) were not excluded from accessibility window monitoring. Typing in Instagram dispatched accessibility events with IME package names, resetting `currentForegroundPackage` to null and cancelling the active monitoring coroutine ticker. When keyboard was dismissed, Android did not fire another window transition event, allowing hours of untracked usage.
+    2. Accessibility monitoring loop did not exit immediately upon blocking an app, causing redundant loop evaluations.
+    3. `RealUsageTracker.reconcileWithAndroidUsageStats` compared against stale `existing.quotaSeconds` instead of updated limits and could reset `isBlocked`.
+  - **IME Exclusion Filter**: Added `isInputMethodOrTransientOverlay` recognizing IME packages, prevent keyboard appearances from interrupting target app monitoring tickers.
+  - **Immediate Loop Termination**: Added immediate `break` in `FocusLockAccessibilityService` foreground monitoring loop as soon as blocking screen is triggered.
+  - **Authoritative Quota & Block State Preservation**: Reconciliations now preserve `isBlocked = existing.isBlocked || (reconciledSeconds >= quota)` and retain configured quota.
+  - **Persistent Blocking Enforcement**: Repeated launch attempts and app switches re-check persisted Room database state and enforce blocking screen immediately until midnight reset.
+
+- **Bug 3 — 5-Minute Break Timer Across Screen-Off & Background Execution**:
+  - **Root Cause**:
+    1. `BreakReminderHelper.onScreenOff()` and `expireSessionIfGracePeriodOver()` explicitly deleted `KEY_BREAK_ACTIVE` and `KEY_BREAK_START_ELAPSED` from SharedPreferences when screen turned off.
+    2. `BreakAlertActivity.kt` relied on an in-memory Compose `LaunchedEffect` decrementing an integer instead of deriving remaining time from monotonic deadlines.
+    3. No AlarmManager or background mechanism existed to fire completion when the screen was off or device was in deep sleep.
+  - **Persistent Monotonic & Wall-Clock Deadlines**: Added `KEY_BREAK_START_WALL`, `KEY_BREAK_DEADLINE_WALL`, `KEY_BREAK_BOOT_SESSION_ID`, and `KEY_BREAK_COMPLETED` in `BreakReminderHelper`.
+  - **Authoritative Elapsed Time Countdown**: `getRemainingBreakSeconds()` derives remaining time from `clock.elapsedRealtime()` / `currentTimeMillis()`. Screen-off time continues the break countdown accurately.
+  - **AlarmManager Completion Scheduling**: Added `scheduleBreakCompletionAlarm()` using `AlarmManager.RTC_WAKEUP` / `setExactAndAllowWhileIdle()` targeting `BreakReminderActionReceiver.ACTION_BREAK_COMPLETE`.
+  - **Reboot Recovery**: `onDeviceReboot()` validates wall-clock difference: if elapsed wall time < 5 minutes, monotonic timestamps and alarm are restored; if >= 5 minutes, break completes immediately.
+  - **Idempotent Completion**: `completeBreak()` completes atomically, cancels pending alarms, and posts `Break Complete! 🎉` notification exactly once.
+  - **Strict Decoupling**: 5-minute break timer is completely decoupled from 30-minute continuous screen wellness timer. Wellness session reset does not erase active breaks.
+
+- **Test Suite**:
+  - Full test suite passing (121+ tests including boundary conditions, at-most-once delivery, keyboard IME overlay safety, repeated launch prevention, break screen-off countdown, and reboot recovery).
 
 ---
 
@@ -27,7 +118,7 @@ All notable changes to the FocusLock application and its architectural systems a
 ### Fixed & Enhanced
 - **App Re-Launch & Recent Apps Bypass Fix**:
   - Added immediate foreground displacement via `performGlobalAction(GLOBAL_ACTION_HOME)` in `FocusLockAccessibilityService` when restricted apps are foregrounded.
-  - Intercepts launcher icon taps, Recent Apps overview, repeated launcher taps, app switching, and external links.
+  - Prevents bypasses through Home button relaunch, Recent Apps overview, repeated launcher taps, app switching, and external links.
   - Smart 250ms debouncer prevents duplicate `BlockingActivity` launches without ever dropping app displacement.
 - **Accurate Foreground Usage Accounting**:
   - Eliminated fractional loss and `% 2L` truncation; exact foreground seconds are tracked monotonically and reconciled with `UsageStatsManager` via `maxOf(measuredSeconds, existing.usedSeconds)`.
@@ -61,8 +152,8 @@ All notable changes to the FocusLock application and its architectural systems a
 ### Added
 - **Continuous 30-Minute Screen Wellness Reminder System**:
   - Monotonic continuous screen-on session tracking (`BreakReminderHelper`).
-  - App switching across Instagram, YouTube, WhatsApp, Chrome, games never resets continuous timer.
-  - Turning the screen OFF cleanly resets session; turning screen ON starts fresh 30-minute session.
+  - App switching across Instagram, YouTube, WhatsApp, Chrome, games never resets the continuous timer.
+  - Turning the screen OFF cleanly resets the session; turning the screen ON starts a fresh 30-minute session.
   - Pleasant harmonic chime and warm spoken prompt: *"Please, sir! It's time to take care of yourself. Go for a short walk, rest your eyes, and drink a glass of water."*
   - Custom audio and video file pickers via Storage Access Framework (`OpenDocument`) with persistable URI permission handling.
   - High-fidelity 3D-styled animated walking character and drinking water glass Canvas animations, plus custom video loop player fallback.
@@ -75,14 +166,28 @@ All notable changes to the FocusLock application and its architectural systems a
 ## [v1.2.1] — 2026-10-22
 
 ### Added
-- **Project Intelligence System**: Created structured, persistent documentation in `project-intelligence/` covering architecture, dependencies, database schema, permissions, feature map, build commands, known issues, changelog, and task logs.
-- **Project-Level Rules**: Installed `.agents/rules/project-intelligence.md` and `.agent/rules/project-intelligence.md` to guide future agent workflows.
-- **Git-Based Staleness Script**: Added `scripts/check-doc-staleness.ps1` to detect modified source files and highlight potentially affected intelligence documents.
-- **1-Minute Instagram Daily Limit Preset**: Added `1 * 60L` option to `AppDetailsScreen` to enable fast testing and micro-allowances.
-- **Automated Lifecycle Unit Tests**: Added unit tests in `ExternalAppBlockingTest.kt` covering 1-minute Instagram limits, persistence in Room DB, reopening resilience, 30-second emergency bypass, and midnight resets.
+- **Standardized `analysis/` Intelligence Directory**: Deployed project analysis and architecture documentation suite:
+  - `analysis/README.md`
+  - `analysis/PROJECT_OVERVIEW.md`
+  - `analysis/ARCHITECTURE.md`
+  - `analysis/FILE_INDEX.md`
+  - `analysis/DEPENDENCIES.md`
+  - `analysis/DATABASE_SCHEMA.md`
+  - `analysis/SECURITY_AND_PERMISSIONS.md`
+  - `analysis/FEATURE_STATUS.md`
+  - `analysis/BUILD_AND_TEST.md`
+  - `analysis/KNOWN_ISSUES.md`
+  - `analysis/TASK_LOG.md`
+- **Global & Project Rule Alignment**: Updated `AGENTS.md`, `.agents/rules/project-intelligence.md`, and `.agent/rules/project-intelligence.md` with:
+  - Multilingual response rules (Simple Hinglish).
+  - Senior Expert Roles orchestration (UI/UX, Android, Frontend, Backend, DevOps, DB, QA, Architect).
+  - Mandatory project analysis protocol & incremental updates.
+  - Strict 5-point final response schema (`DONE`, `FILES`, `VERIFICATION`, `DOCS`, `BLOCKERS`).
+- **1-Minute Instagram Daily Limit Preset**: Added micro-allowance option to `AppDetailsScreen.kt` for rapid testing and zero-tolerance quotas.
+- **Automated Lifecycle Unit Tests**: Added unit tests in `ExternalAppBlockingTest.kt` verifying 1-minute limits, Room persistence, reopening resilience, 30-second emergency bypass, and midnight resets.
 
 ### Fixed
-- **Instant Zero-Lag App Blocking**: Fixed a 1–2 second delay where Instagram opened and rendered before the blocking screen appeared. Replaced pre-evaluation usage event scans with a synchronous in-memory `blockedPackagesCache` in `FocusLockAccessibilityService`.
+- **Instant Zero-Lag App Blocking**: Fixed a 1–2 second delay where Instagram opened and rendered before the blocking screen appeared. Replaced pre-evaluation usage event scans with a synchronous in-memory `blockedPackagesCache` in `FocusLockAccessibilityService.kt`.
 - **Eliminated Home Screen Flash**: Removed the `GLOBAL_ACTION_HOME` + `delay(100L)` race condition, launching `BlockingActivity` directly on top of the restricted app.
 - **Blocking Screen UI Wording**: Updated title to "Daily Limit Reached" and added clear message: *"You've used your $appName allowance for today. Take a break and come back tomorrow."*
 

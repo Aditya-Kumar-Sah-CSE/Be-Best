@@ -55,3 +55,41 @@ This document records architectural boundaries, operating system quirks, OEM bat
      - Turning screen OFF for >= 5 minutes expires session.
      - Device reboot verifies wall-clock elapsed time against 5-minute grace threshold, preserving session across reboots safely.
      - Clock abstraction allows 100% deterministic unit testing without real-time delays.
+
+5. **Missing 10-Minute & 5-Minute Daily Quota Warnings (Fixed v1.2.5)**:
+   - *Issue*: Daily quota approaching warnings did not appear.
+   - *Root Cause*: Zero code existed to post quota warning notifications or persist warning delivery; `QuotaEngine` only had an unused 80% status.
+   - *Fix*: Added `warning10Triggered` and `warning5Triggered` columns to Room `DailyUsageEntity` (DB migration 4->5); dynamically evaluates thresholds (`remainingTime <= 10m` and `<= 5m`); guarantees at-most-once delivery per local calendar day; evaluates immediately on startup; uses `NotificationManagerCompat` with floating overlay fallback; resets flags at local midnight.
+
+6. **Inconsistent Quota Enforcement & Keyboard Bypass (Fixed v1.2.5)**:
+   - *Issue*: Instagram could be used for hours past the daily limit.
+   - *Root Cause*: Input Method Editors (soft keyboards like Gboard, SwiftKey) were not excluded, so typing in Instagram triggered window state changes with IME package names, resetting `currentForegroundPackage` to null and cancelling the active monitoring coroutine ticker. When keyboard was dismissed, Android did not fire another window transition event, allowing hours of untracked usage. Furthermore, accessibility monitoring loop did not exit immediately upon blocking an app, causing redundant loop evaluations.
+   - *Fix*: Added `isInputMethodOrTransientOverlay` recognizing IME packages, preventing keyboard events from interrupting active monitoring tickers. Added immediate `break` in accessibility monitoring loop upon blocking. Reconciliations preserve `isBlocked = existing.isBlocked || (reconciledSeconds >= quota)`.
+
+7. **5-Minute Break Timer Stopping When Screen Turns Off (Fixed v1.2.5)**:
+   - *Issue*: 5-minute break timer stopped or reset when the screen turned off.
+   - *Root Cause*: `BreakReminderHelper.onScreenOff()` and `expireSessionIfGracePeriodOver()` explicitly deleted `KEY_BREAK_ACTIVE` and `KEY_BREAK_START_ELAPSED` from SharedPreferences when screen turned off. `BreakAlertActivity.kt` relied on an in-memory Compose integer loop.
+   - *Fix*: Persisted break start time and deadline (monotonic and wall-clock); countdown derived dynamically from elapsed time; `scheduleBreakCompletionAlarm()` uses `AlarmManager.RTC_WAKEUP`; `onDeviceReboot()` restores active break if wall diff < 5 min; `completeBreak()` is idempotent and fires completion notification once; strictly decoupled from 30-minute wellness timer.
+
+8. **Timers Running in Background After 5-Minute Screen Off (Fixed v1.2.6)**:
+   - *Issue*: Continuous screen timer kept accumulating time in the background while device was locked, reaching 147+ minutes on floating pill overlay. 5-minute rest timer also did not stop cleanly in background.
+   - *Root Cause*: `resetSession()` unconditionally set `KEY_IS_SCREEN_ON = true` and `KEY_SESSION_START_ELAPSED = nowElapsed` even when the screen was off (e.g. when `completeBreak()` ran via AlarmManager while locked); `onScreenOn()` early-returned when `isScreenOn` was true; `getContinuousScreenUsageMillis()` did not verify `PowerManager.isInteractive`; 5-min grace period only used `Handler.postDelayed()` which never fired in CPU sleep/doze mode; `BreakAlertActivity.kt` continue button called `dismiss()` instead of `resetSession()`.
+   - *Fix*: Added `isScreenInteractive()` via `PowerManager.isInteractive`; `resetSession()` sets `isScreenOn = false` and `sessionStart = 0L` when screen is off; `getContinuousScreenUsageMillis()` returns 0L when screen is off for >= 5m; scheduled `ACTION_SCREEN_OFF_EXPIRED` via `AlarmManager.RTC_WAKEUP` stopping both 30m continuous screen time and 5m break timer in background; `BreakAlertActivity.kt` updates completion header and resets session on continue.
+
+9. **Blocking Activity Launch Failure & No-Redirection Over Restricted Apps (Fixed v1.2.7)**:
+   - *Issue*: Blocked apps (such as Instagram) could be launched or reopened from launcher without redirection to the blocking screen.
+   - *Root Cause*:
+     - `BlockingActivity` used `taskAffinity=""` and `launchMode="singleTop"`. With empty affinity and `singleTop`, calling `startActivity` from a background service failed to elevate the blocking task over the newly active foreground application.
+     - Missing `FLAG_ACTIVITY_REORDER_TO_FRONT` and Android 14+ `ActivityOptions` background launch permissions.
+     - When OS Background Activity Launch (BAL) or OEM restrictions silently dropped the launch intent, `startActivity` did not throw an exception, so `activityStarted` was set to true and displacement fallback was never executed.
+     - Rapid window events during app startup triggered the 250ms debounce before `BlockingActivity` surfaced, dropping all subsequent launch attempts.
+     - `AppDetailsViewModel.updateLimit()` hardcoded `updateBlockedPackage(pkg, isBlocked = false)`, unblocking memory caches even when the limit was reduced below existing usage.
+     - In-memory blocked cache was not refreshed on ViewModel limit/protection changes.
+   - *Fix*:
+     - Configured `BlockingActivity` with `launchMode="singleTask"` and dedicated `taskAffinity="com.focuslock.app.blocking"` in `AndroidManifest.xml`.
+     - Added window flags (`setShowWhenLocked` & `setTurnScreenOn`) in `BlockingActivity.onCreate()`.
+     - Added `FLAG_ACTIVITY_REORDER_TO_FRONT` and Android 14+ `ActivityOptions` with background activity start mode allowed.
+     - Only debounce in `launchBlockScreen` if `BlockingActivity.isBlockingScreenVisible` is already true.
+     - Added 250ms safety confirmation verification coroutine: if `BlockingActivity` does not surface and the restricted app is still in the foreground, immediately displaces to Home and presents full-screen blocking notification.
+     - Toggling protections or limits in `AppDetailsViewModel` and `AppSelectionViewModel` now refreshes `refreshBlockedPackagesCache()`.
+     - `refreshBlockedPackagesCache()` handles 0-second limits and queries accurate usage if Room record is not yet initialized.

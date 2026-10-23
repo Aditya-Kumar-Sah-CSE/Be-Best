@@ -1,10 +1,10 @@
 {
-  "versionCode": 9,
-  "versionName": "1.2.6",
-  "releaseNotes": "• Background Screen-Off Timer Stop & Auto-Reset: 30-minute continuous screen timer and 5-minute rest timer cleanly stop after 5m of screen-off in background without accumulating hours of background usage\n• PowerManager Integration: Verifies interactive screen state to prevent phantom session starts while phone is asleep\n• AlarmManager Deep Sleep Expiry: Wakes reliably in background after 5m screen-off to complete break and reset timers\n• Break Completion UI: Proper completion message on Break Alert screen with 00:00 session reset on continue",
-  "apkUrl": "https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/release/FocusLock-v1.2.6.apk",
-  "apkSha256": "22282600BF8DF935F911DFBFEE35F0DC6BB30DEB229898B5702C71F6644E8C81",
-  "apkSizeBytes": 12234491,
+  "versionCode": 10,
+  "versionName": "1.2.7",
+  "releaseNotes": "• Instagram & Restricted App Redirection Fix: BlockingActivity elevated via singleTask and dedicated taskAffinity with FLAG_ACTIVITY_REORDER_TO_FRONT and Android 14+ background launch permissions\n• BAL & OEM Displacement Safety Fallback: Automatically displaces restricted apps to Home within 250ms if background launch is silently suppressed by OEM battery/window policies\n• Live Cache Reconcile: AppDetailsViewModel and AppSelectionViewModel automatically sync in-memory cache on limit updates and toggles\n• Zero-Second Immediate Blocking: Applications configured with 0-second limits are blocked instantly without waiting for usage records",
+  "apkUrl": "https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/release/FocusLock-v1.2.7.apk",
+  "apkSha256": "3646F14DB0F44FD33227B196A9254629D32804D7D743597F58A493B52C72D34A",
+  "apkSizeBytes": 12234512,
   "minSupportedVersionCode": 1,
   "isMandatory": false
 }

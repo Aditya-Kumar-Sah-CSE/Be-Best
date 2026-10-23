@@ -156,7 +156,7 @@ class AppDetailsViewModel(application: Application) : AndroidViewModel(applicati
         if (pkg.isBlank()) return
         viewModelScope.launch {
             appRepo.updateAppLimit(pkg, limitSeconds)
-            com.focuslock.app.service.FocusLockAccessibilityService.updateBlockedPackage(pkg, isBlocked = false)
+            com.focuslock.app.service.FocusLockAccessibilityService.refreshBlockedPackagesCache()
             loadAppDetails(pkg)
         }
     }
@@ -173,9 +173,7 @@ class AppDetailsViewModel(application: Application) : AndroidViewModel(applicati
                 limitSeconds = state.dailyLimitSeconds,
                 category = state.category
             )
-            if (!newStatus) {
-                com.focuslock.app.service.FocusLockAccessibilityService.updateBlockedPackage(state.packageName, isBlocked = false)
-            }
+            com.focuslock.app.service.FocusLockAccessibilityService.refreshBlockedPackagesCache()
             loadAppDetails(state.packageName)
         }
     }

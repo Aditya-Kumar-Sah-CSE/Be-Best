@@ -1,10 +1,12 @@
 package com.focuslock.app.service
 
 import android.accessibilityservice.AccessibilityService
+import android.app.ActivityOptions
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.Build
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityEvent
 import com.focuslock.app.FocusLockApp
@@ -177,6 +179,9 @@ class FocusLockAccessibilityService : AccessibilityService() {
         if (isPackageBlockedFast(packageName)) {
             val cachedName = appNamesCache[packageName]
                 ?: packageName.substringAfterLast('.').replaceFirstChar { it.uppercase() }
+            recordPreviousSession()
+            currentForegroundPackage = packageName
+            activeMonitoringJob?.cancel()
             launchBlockScreen(packageName, cachedName)
             return
         }
@@ -399,8 +404,8 @@ class FocusLockAccessibilityService : AccessibilityService() {
             return
         }
 
-        // Debounce rapid duplicate intent starts within 250ms
-        if (lastBlockedPackage == packageName && (nowElapsed - lastBlockLaunchElapsed) < 250L) {
+        // Debounce rapid duplicate intent starts only if BlockingActivity is already visibly displayed
+        if (BlockingActivity.isBlockingScreenVisible && lastBlockedPackage == packageName && (nowElapsed - lastBlockLaunchElapsed) < 250L) {
             return
         }
 
@@ -414,18 +419,60 @@ class FocusLockAccessibilityService : AccessibilityService() {
             addFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK or
                 Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                Intent.FLAG_ACTIVITY_SINGLE_TOP
+                Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
             )
         }
 
+        val options = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            try {
+                ActivityOptions.makeBasic().apply {
+                    val method = ActivityOptions::class.java.getMethod(
+                        "setPendingIntentBackgroundActivityStartMode",
+                        Int::class.javaPrimitiveType
+                    )
+                    method.invoke(this, 1) // MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                }.toBundle()
+            } catch (e: Exception) {
+                null
+            }
+        } else null
+
         var activityStarted = false
         try {
-            startActivity(intent)
+            if (options != null) {
+                startActivity(intent, options)
+            } else {
+                startActivity(intent)
+            }
             activityStarted = true
             android.util.Log.d("FocusLock", "BlockingActivity successfully launched for $packageName")
         } catch (e: Exception) {
             android.util.Log.e("FocusLock", "Failed to launch BlockingActivity for $packageName: ${e.message}", e)
             activityStarted = false
+        }
+
+        // Asynchronous safety verification:
+        // On OEM devices (Xiaomi, Vivo, Oppo, Realme, etc.) or restricted Android versions,
+        // background activity starts may be suppressed silently without throwing an exception.
+        // We verify whether BlockingActivity actually surfaced within 250ms.
+        serviceScope.launch {
+            delay(250L)
+            if (!BlockingActivity.isBlockingScreenVisible && currentForegroundPackage == packageName) {
+                android.util.Log.w("FocusLock", "BlockingActivity did not surface over $packageName; executing displacement fallback")
+                try {
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                } catch (e: Exception) {
+                    try {
+                        val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                            addCategory(Intent.CATEGORY_HOME)
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                        startActivity(homeIntent)
+                    } catch (ex: Exception) {}
+                }
+                showBlockingNotification(packageName, appName)
+            }
         }
 
         if (!activityStarted) {
@@ -655,7 +702,10 @@ class FocusLockAccessibilityService : AccessibilityService() {
                         val isEmergency = usage != null && usage.emergencyUsed &&
                                 nowWall < usage.emergencyExpiresAt &&
                                 (nowElapsed - usage.emergencyElapsedRealtimeAtStart) < 30_000L
-                        val isExhausted = usage != null && (usage.isBlocked || usage.usedSeconds >= pApp.dailyLimitSeconds)
+                        val accurateUsed = usage?.usedSeconds ?: app.realUsageTracker.queryAccurateUsageSeconds(pApp.packageName)
+                        val isExhausted = (pApp.dailyLimitSeconds == 0L) ||
+                                (usage?.isBlocked == true) ||
+                                (accurateUsed >= pApp.dailyLimitSeconds)
                         if (isExhausted && !isEmergency) {
                             blockedPackagesCache.add(pApp.packageName)
                         } else {

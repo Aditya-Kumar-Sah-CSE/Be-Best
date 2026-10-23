@@ -611,5 +611,35 @@ class ExternalAppBlockingTest {
         assertEquals(0L, afterMidnight.usedSeconds)
         assertEquals(1800L, afterMidnight.remainingSeconds)
     }
+
+    @Test
+    fun testZeroSecondLimit_InstantlyBlocked() = runBlocking {
+        // App configured with 0-second limit (immediate strict block)
+        val strictPkg = "com.strict.test"
+        protectedAppDao.insertOrUpdate(
+            ProtectedAppEntity(
+                packageName = strictPkg,
+                displayName = "Strict App",
+                dailyLimitSeconds = 0L,
+                enabled = true,
+                category = "SOCIAL"
+            )
+        )
+
+        val eval = quotaEngine.evaluateQuota(strictPkg)
+        assertTrue("0-second limit must immediately block application without usage", eval.isBlocked)
+        assertEquals(0L, eval.remainingSeconds)
+        assertEquals(ProtectionState.EXHAUSTED, eval.status)
+    }
+
+    @Test
+    fun testBlockingIntentFlagsContracts() {
+        val expectedFlags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+        assertTrue("Flags must contain FLAG_ACTIVITY_NEW_TASK", (expectedFlags and android.content.Intent.FLAG_ACTIVITY_NEW_TASK) != 0)
+        assertTrue("Flags must contain FLAG_ACTIVITY_REORDER_TO_FRONT", (expectedFlags and android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT) != 0)
+    }
 }
 

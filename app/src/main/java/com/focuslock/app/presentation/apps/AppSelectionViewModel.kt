@@ -127,6 +127,7 @@ class AppSelectionViewModel(application: Application) : AndroidViewModel(applica
                 limitSeconds = appItem.dailyLimitSeconds,
                 category = appItem.category
             )
+            com.focuslock.app.service.FocusLockAccessibilityService.refreshBlockedPackagesCache()
             loadApps()
         }
     }
@@ -134,6 +135,7 @@ class AppSelectionViewModel(application: Application) : AndroidViewModel(applica
     fun updateAppLimit(packageName: String, limitSeconds: Long) {
         viewModelScope.launch {
             appRepo.updateAppLimit(packageName, limitSeconds)
+            com.focuslock.app.service.FocusLockAccessibilityService.refreshBlockedPackagesCache()
             loadApps()
         }
     }
@@ -141,6 +143,7 @@ class AppSelectionViewModel(application: Application) : AndroidViewModel(applica
     fun selectAllSuggestedDistractions() {
         viewModelScope.launch {
             appRepo.selectAllSuggestedDistractions(1800L)
+            com.focuslock.app.service.FocusLockAccessibilityService.refreshBlockedPackagesCache()
             loadApps()
         }
     }
@@ -148,6 +151,7 @@ class AppSelectionViewModel(application: Application) : AndroidViewModel(applica
     fun deselectAll() {
         viewModelScope.launch {
             appRepo.deselectAllApps()
+            com.focuslock.app.service.FocusLockAccessibilityService.refreshBlockedPackagesCache()
             loadApps()
         }
     }

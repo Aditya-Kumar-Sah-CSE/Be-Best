@@ -4,6 +4,32 @@ All notable changes to the FocusLock application, its architectural systems, and
 
 ---
 
+## [v1.2.7] — 2026-10-23
+
+### Blocking Activity Launch Failure & No-Redirection Over Restricted Apps (Instagram) Fix
+- **Root Causes**:
+  1. `BlockingActivity` had `android:taskAffinity=""` and `android:launchMode="singleTop"` in `AndroidManifest.xml`. Empty affinity prevented Android's WindowManager from bringing an existing instance or task to the front over a newly foregrounded app (like Instagram) when invoked from a background `AccessibilityService`.
+  2. Launch Intent flags lacked `FLAG_ACTIVITY_REORDER_TO_FRONT` and did not provide Android 14+ (API 34+) `ActivityOptions.setPendingIntentBackgroundActivityStartMode`.
+  3. When OS Background Activity Launch (BAL) or OEM restrictions (Xiaomi MIUI/HyperOS, Oppo ColorOS, Vivo, Samsung OneUI) silently suppressed `startActivity`, no exception was thrown, marking `activityStarted = true` and preventing the fallback displacement to Home from ever executing.
+  4. Rapid consecutive window state events during Instagram app startup triggered the 250ms debounce before `BlockingActivity` became visible, dropping all subsequent launch requests and leaving Instagram in the foreground.
+  5. `AppDetailsViewModel.updateLimit()` unconditionally hardcoded `updateBlockedPackage(pkg, isBlocked = false)`, unblocking memory caches even when the user lowered the limit below tracked usage.
+  6. Neither `AppDetailsViewModel` nor `AppSelectionViewModel` called `refreshBlockedPackagesCache()` on limit or protection changes, keeping in-memory blocked caches stale.
+  7. In `refreshBlockedPackagesCache()`, applications configured with a `0L` daily limit or apps without a pre-existing Room `daily_usage` entity evaluated to unblocked.
+- **Fixes Applied**:
+  1. **SingleTask & Dedicated Affinity**: Updated `BlockingActivity` to `android:launchMode="singleTask"` and `android:taskAffinity="com.focuslock.app.blocking"` in `AndroidManifest.xml` to ensure clean task group elevation over restricted apps.
+  2. **Display Window Flags**: Added `setShowWhenLocked(true)` and `setTurnScreenOn(true)` to `BlockingActivity.onCreate()`.
+  3. **Android 14+ ActivityOptions & Intent Flags**: Added `FLAG_ACTIVITY_REORDER_TO_FRONT` and configured `ActivityOptions.makeBasic()` with background activity launch permission.
+  4. **Active Visibility Debouncing**: Fixed debounce condition in `launchBlockScreen` so that rapid launch attempts are only debounced if `BlockingActivity.isBlockingScreenVisible` is already true.
+  5. **Asynchronous Safety Displacement Verification**: Added a 250ms verification coroutine in `launchBlockScreen`. If `!BlockingActivity.isBlockingScreenVisible && currentForegroundPackage == packageName`, the service immediately displaces the restricted app to Home (`GLOBAL_ACTION_HOME`) and presents a high-priority blocking notification.
+  6. **ViewModel Cache Refreshing**: Replaced hardcoded unblocking with `FocusLockAccessibilityService.refreshBlockedPackagesCache()` across both `AppDetailsViewModel` and `AppSelectionViewModel`.
+  7. **0-Second Limit & Fast Reconcile in Cache**: `refreshBlockedPackagesCache()` immediately blocks apps with 0-second limits and queries `queryAccurateUsageSeconds` if a Room record is not yet present.
+- **Verification**:
+  - Regression unit tests in `ExternalAppBlockingTest.kt` passing.
+  - Full project test suite passed (`BUILD SUCCESSFUL in 4m 8s`).
+  - Full debug APK assembled (`assembleDebug` `BUILD SUCCESSFUL in 6m 17s`).
+
+---
+
 ## [v1.2.6] — 2026-10-23
 
 ### Background Screen-Off Timer Stop & Auto-Reset Fix (30-Minute Timer & 5-Minute Rest Timer)

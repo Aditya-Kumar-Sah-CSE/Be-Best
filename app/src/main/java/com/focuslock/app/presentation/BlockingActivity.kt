@@ -100,6 +100,17 @@ class BlockingActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         updateFromIntent(intent)
 
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            )
+        }
+
         onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 val homeIntent = Intent(Intent.ACTION_MAIN).apply {
@@ -149,6 +160,8 @@ class BlockingActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         updateFromIntent(intent)
+        isBlockingScreenVisible = true
+        activeBlockedPackage = intent.getStringExtra(EXTRA_PACKAGE_NAME)
     }
 
     override fun onResume() {
@@ -159,6 +172,17 @@ class BlockingActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
+        // Kept visible in onPause to prevent debounce drops during transient dialogs or shade pulls
+    }
+
+    override fun onStop() {
+        super.onStop()
+        isBlockingScreenVisible = false
+        activeBlockedPackage = null
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
         isBlockingScreenVisible = false
         activeBlockedPackage = null
     }

@@ -75,3 +75,21 @@ This document records architectural boundaries, operating system quirks, OEM bat
    - *Issue*: Continuous screen timer kept accumulating time in the background while device was locked, reaching 147+ minutes on floating pill overlay. 5-minute rest timer also did not stop cleanly in background.
    - *Root Cause*: `resetSession()` unconditionally set `KEY_IS_SCREEN_ON = true` and `KEY_SESSION_START_ELAPSED = nowElapsed` even when the screen was off (e.g. when `completeBreak()` ran via AlarmManager while locked); `onScreenOn()` early-returned when `isScreenOn` was true; `getContinuousScreenUsageMillis()` did not verify `PowerManager.isInteractive`; 5-min grace period only used `Handler.postDelayed()` which never fired in CPU sleep/doze mode; `BreakAlertActivity.kt` continue button called `dismiss()` instead of `resetSession()`.
    - *Fix*: Added `isScreenInteractive()` via `PowerManager.isInteractive`; `resetSession()` sets `isScreenOn = false` and `sessionStart = 0L` when screen is off; `getContinuousScreenUsageMillis()` returns 0L when screen is off for >= 5m; scheduled `ACTION_SCREEN_OFF_EXPIRED` via `AlarmManager.RTC_WAKEUP` stopping both 30m continuous screen time and 5m break timer in background; `BreakAlertActivity.kt` updates completion header and resets session on continue.
+
+9. **Blocking Activity Launch Failure & No-Redirection Over Restricted Apps (Fixed v1.2.7)**:
+   - *Issue*: Blocked apps (such as Instagram) could be launched or reopened from launcher without redirection to the blocking screen.
+   - *Root Cause*:
+     - `BlockingActivity` used `taskAffinity=""` and `launchMode="singleTop"`. With empty affinity and `singleTop`, calling `startActivity` from a background service failed to elevate the blocking task over the newly active foreground application.
+     - Missing `FLAG_ACTIVITY_REORDER_TO_FRONT` and Android 14+ `ActivityOptions` background launch permissions.
+     - When OS Background Activity Launch (BAL) or OEM restrictions silently dropped the launch intent, `startActivity` did not throw an exception, so `activityStarted` was set to true and displacement fallback was never executed.
+     - Rapid window events during app startup triggered the 250ms debounce before `BlockingActivity` surfaced, dropping all subsequent launch attempts.
+     - `AppDetailsViewModel.updateLimit()` hardcoded `updateBlockedPackage(pkg, isBlocked = false)`, unblocking memory caches even when the limit was reduced below existing usage.
+     - In-memory blocked cache was not refreshed on ViewModel limit/protection changes.
+   - *Fix*:
+     - Configured `BlockingActivity` with `launchMode="singleTask"` and dedicated `taskAffinity="com.focuslock.app.blocking"` in `AndroidManifest.xml`.
+     - Added window flags (`setShowWhenLocked` & `setTurnScreenOn`) in `BlockingActivity.onCreate()`.
+     - Added `FLAG_ACTIVITY_REORDER_TO_FRONT` and Android 14+ `ActivityOptions` with background activity start mode allowed.
+     - Only debounce in `launchBlockScreen` if `BlockingActivity.isBlockingScreenVisible` is already true.
+     - Added 250ms safety confirmation verification coroutine: if `BlockingActivity` does not surface and the restricted app is still in the foreground, immediately displaces to Home and presents full-screen blocking notification.
+     - Toggling protections or limits in `AppDetailsViewModel` and `AppSelectionViewModel` now refreshes `refreshBlockedPackagesCache()`.
+     - `refreshBlockedPackagesCache()` handles 0-second limits and queries accurate usage if Room record is not yet initialized.
