@@ -11,6 +11,7 @@ class BreakReminderActionReceiver : BroadcastReceiver() {
         const val ACTION_DISMISS = "com.focuslock.app.ACTION_DISMISS_BREAK_REMINDER"
         const val ACTION_START_BREAK = "com.focuslock.app.ACTION_START_BREAK"
         const val ACTION_BREAK_COMPLETE = "com.focuslock.app.ACTION_BREAK_COMPLETE"
+        const val ACTION_SCREEN_OFF_EXPIRED = "com.focuslock.app.ACTION_SCREEN_OFF_EXPIRED"
     }
 
     override fun onReceive(context: Context?, intent: Intent?) {
@@ -30,6 +31,9 @@ class BreakReminderActionReceiver : BroadcastReceiver() {
             }
             ACTION_BREAK_COMPLETE -> {
                 BreakReminderHelper.completeBreak(context)
+            }
+            ACTION_SCREEN_OFF_EXPIRED -> {
+                BreakReminderHelper.onScreenOffGraceExpired(context)
             }
         }
     }

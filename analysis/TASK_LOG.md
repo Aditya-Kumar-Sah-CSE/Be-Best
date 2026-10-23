@@ -4,6 +4,38 @@ This log tracks technical tasks, bug fixes, refactorings, and intelligence setup
 
 ---
 
+### [TASK-008] Fix Background Screen-Off Timers (30m Continuous Screen Time & 5m Rest Timer Stop After 5m Screen Off)
+- **Date**: 2026-10-23
+- **Objective**: Ensure that when the phone screen is turned off, both the 30-minute continuous screen timer and the 5-minute rest timer stop and reset cleanly after 5 minutes, preventing background accumulation (e.g. 147:47 timer bug).
+- **Root Causes**:
+  1. `BreakReminderHelper.resetSession()` unconditionally marked `KEY_IS_SCREEN_ON = true` and `sessionStart = nowElapsed` when called from background `completeBreak()`, treating background screen-off time as active screen usage.
+  2. `onScreenOn()` early-returned when `isScreenOn == true`, bypassing break completion checks and grace-period expiration checks.
+  3. `getContinuousScreenUsageMillis()` calculated `nowElapsed - sessionStart` without checking if screen was interactive (`PowerManager.isInteractive`).
+  4. 5-min grace expiration only used `Handler.postDelayed()`, which never ran during CPU deep sleep / Doze mode.
+  5. `FloatingTimerService` and `FocusLockAccessibilityService` called `onScreenOn()` on background restarts even when the device was locked.
+  6. `BreakAlertActivity.kt` continue button called `dismiss()` instead of resetting the continuous screen timer.
+- **Key Changes**:
+  1. `BreakReminderHelper.kt`:
+     - Added `isScreenInteractive()` using `PowerManager.isInteractive` with test overrides.
+     - `resetSession()` respects screen interactive state: sets `KEY_IS_SCREEN_ON = false` and `sessionStart = 0L` when screen is off.
+     - `getContinuousScreenUsageMillis()` returns `0L` when screen is off for >= 5m and never accumulates screen-off time.
+     - Added `ACTION_SCREEN_OFF_EXPIRED` with `scheduleScreenOffGraceAlarm()` via `AlarmManager.RTC_WAKEUP` / `setExactAndAllowWhileIdle()` to reliably stop both the 30m continuous screen time and 5m break timer in the background after 5 minutes screen off.
+     - `onScreenOn()` evaluates break completion and grace expiration before early return.
+  2. `BreakAlertActivity.kt`:
+     - Header updates to "🎉 Wellness Break Completed" and "You're refreshed and ready!" when break completes.
+     - "Break Complete! Continue ✓" button calls `BreakReminderHelper.resetSession()` to cleanly reset the continuous timer to 0:00.
+  3. `FloatingTimerService.kt` & `FocusLockAccessibilityService.kt`:
+     - Check `PowerManager.isInteractive` before calling `onScreenOn()` or showing the floating overlay.
+  4. `BreakReminderActionReceiver.kt` & `AndroidManifest.xml`:
+     - Added `ACTION_SCREEN_OFF_EXPIRED` broadcast handler.
+  5. `BreakReminderTest.kt`:
+     - Added unit tests for screen off >= 5m stopping both 30m timer and 5m break timer, and background screen-off time never accumulating.
+- **Verification**:
+  - `testDebugUnitTest` passed (all 123+ tests passed in 30s).
+  - `assembleDebug` passed (BUILD SUCCESSFUL in 1m 4s).
+
+---
+
 ### [TASK-007] Critical Bug Fix: Warnings System, Reliable Daily Limit Enforcement, and Screen-Off Break Countdown
 - **Date**: 2026-10-23
 - **Objective**: Fix 3 production-critical bugs:

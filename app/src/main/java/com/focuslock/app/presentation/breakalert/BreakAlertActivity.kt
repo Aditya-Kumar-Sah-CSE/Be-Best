@@ -113,6 +113,9 @@ class BreakAlertActivity : ComponentActivity() {
                         finish()
                     },
                     onDismiss = {
+                        if (BreakReminderHelper.isBreakCompleted(this@BreakAlertActivity)) {
+                            BreakReminderHelper.resetSession(this@BreakAlertActivity)
+                        }
                         BreakReminderHelper.dismiss(this@BreakAlertActivity)
                         finish()
                     }
@@ -260,8 +263,8 @@ fun BreakAlertScreen(
                         .padding(horizontal = 14.dp, vertical = 6.dp)
                 ) {
                     Text(
-                        text = if (isBreakInProgress) "☕ 5-Minute Wellness Break" else "⏱ 30:00 Continuous Screen Time",
-                        color = if (isBreakInProgress) SuccessGreen else BrandCyan,
+                        text = if (isBreakCompleted) "🎉 Wellness Break Completed" else if (isBreakInProgress) "☕ 5-Minute Wellness Break" else "⏱ 30:00 Continuous Screen Time",
+                        color = if (isBreakCompleted || isBreakInProgress) SuccessGreen else BrandCyan,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -271,7 +274,7 @@ fun BreakAlertScreen(
 
                 // Primary User Message
                 Text(
-                    text = "Please, sir! It's time to take care of yourself.",
+                    text = if (isBreakCompleted) "You're refreshed and ready!" else "Please, sir! It's time to take care of yourself.",
                     fontSize = 22.sp,
                     fontWeight = FontWeight.Black,
                     color = Color.White,
@@ -282,7 +285,8 @@ fun BreakAlertScreen(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
-                    text = "You've been using your screen continuously for 30 minutes. Take a small break and refresh yourself.",
+                    text = if (isBreakCompleted) "Great job taking a 5-minute break, resting your eyes, and hydrating! You're refreshed and ready to refocus."
+                           else "You've been using your screen continuously for 30 minutes. Take a small break and refresh yourself.",
                     fontSize = 13.5.sp,
                     color = Neutral400,
                     textAlign = TextAlign.Center,
@@ -485,7 +489,10 @@ fun BreakAlertScreen(
                 } else {
                     // Break Completed
                     Button(
-                        onClick = onDismiss,
+                        onClick = {
+                            BreakReminderHelper.resetSession(context)
+                            onDismiss()
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(50.dp),

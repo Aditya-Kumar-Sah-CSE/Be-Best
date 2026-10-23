@@ -65,10 +65,16 @@ class FocusLockAccessibilityService : AccessibilityService() {
         super.onCreate()
         refreshLauncherPackages()
         refreshBlockedPackagesCache()
-        com.focuslock.app.core.util.BreakReminderHelper.onScreenOn(applicationContext)
+        val powerManager = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+        if (powerManager?.isInteractive == true) {
+            com.focuslock.app.core.util.BreakReminderHelper.onScreenOn(applicationContext)
+            com.focuslock.app.core.overlay.FloatingTimerManager.show(applicationContext)
+        } else {
+            com.focuslock.app.core.util.BreakReminderHelper.onScreenOff(applicationContext)
+            com.focuslock.app.core.overlay.FloatingTimerManager.hide()
+        }
         com.focuslock.app.core.util.BreakReminderHelper.createNotificationChannel(applicationContext)
         com.focuslock.app.core.overlay.FloatingTimerService.start(applicationContext)
-        com.focuslock.app.core.overlay.FloatingTimerManager.show(applicationContext)
 
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_ON)

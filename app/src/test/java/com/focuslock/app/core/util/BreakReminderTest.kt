@@ -584,4 +584,74 @@ class BreakReminderTest {
         assertEquals(25 * 60 * 1000L, BreakReminderHelper.getContinuousScreenUsageMillis())
         assertEquals(300L, BreakReminderHelper.getRemainingSecondsToThirtyMinutes())
     }
+
+    @Test
+    fun testScreenOffFor5Minutes_StopsBoth30mTimerAnd5mBreakTimer() {
+        // User reaches 20 minutes continuous usage
+        BreakReminderHelper.onScreenOn()
+        testClock.advance(20 * 60 * 1000L)
+        assertEquals(20 * 60 * 1000L, BreakReminderHelper.getContinuousScreenUsageMillis())
+
+        // User also has a break active
+        BreakReminderHelper.startBreak()
+        assertTrue(BreakReminderHelper.isBreakActive())
+
+        // Screen turns OFF
+        BreakReminderHelper.isScreenInteractiveOverride = false
+        BreakReminderHelper.onScreenOff()
+
+        // 5 minutes of screen off pass
+        testClock.advance(5 * 60 * 1000L)
+        BreakReminderHelper.onScreenOffGraceExpired()
+
+        // BOTH timers must be stopped!
+        assertFalse("5m break timer must stop after 5m screen off", BreakReminderHelper.isBreakActive())
+        assertEquals("30m continuous screen time must be 0 after 5m screen off", 0L, BreakReminderHelper.getContinuousScreenUsageMillis())
+
+        // 2 more hours pass in background while phone is locked
+        testClock.advance(120 * 60 * 1000L)
+        assertEquals("Background screen-off time must NEVER accumulate", 0L, BreakReminderHelper.getContinuousScreenUsageMillis())
+
+        // Screen finally turns ON
+        BreakReminderHelper.isScreenInteractiveOverride = true
+        BreakReminderHelper.onScreenOn()
+
+        // Fresh session starts at 0
+        assertEquals(0L, BreakReminderHelper.getContinuousScreenUsageMillis())
+        assertEquals(1800L, BreakReminderHelper.getRemainingSecondsToThirtyMinutes())
+    }
+
+    @Test
+    fun testBreakCompletesWhileScreenOff_SessionResetsCleanlyWithoutAccumulatingBackgroundTime() {
+        // 30m usage, user starts break
+        BreakReminderHelper.onScreenOn()
+        testClock.advance(30 * 60 * 1000L)
+        BreakReminderHelper.startBreak()
+        assertTrue(BreakReminderHelper.isBreakActive())
+
+        // User turns off screen
+        BreakReminderHelper.isScreenInteractiveOverride = false
+        BreakReminderHelper.onScreenOff()
+
+        // 5 minutes of break elapse while screen is off; alarm triggers completeBreak
+        testClock.advance(5 * 60 * 1000L)
+        BreakReminderHelper.completeBreak()
+
+        // Break completed, session reset while screen is off
+        assertTrue(BreakReminderHelper.isBreakCompleted())
+        assertFalse(BreakReminderHelper.isBreakActive())
+        assertEquals(0L, BreakReminderHelper.getContinuousScreenUsageMillis())
+
+        // Phone stays locked for 142 more minutes (simulating user's exact 147m screenshot scenario)
+        testClock.advance(142 * 60 * 1000L)
+        assertEquals("Must NOT accumulate 142m of screen time while screen is off!", 0L, BreakReminderHelper.getContinuousScreenUsageMillis())
+
+        // User unlocks device: screen turns on
+        BreakReminderHelper.isScreenInteractiveOverride = true
+        BreakReminderHelper.onScreenOn()
+
+        // Timer must be 00:00, NOT 147:47!
+        assertEquals("Screen-on timer must start fresh at 0, not 147 minutes", 0L, BreakReminderHelper.getContinuousScreenUsageMillis())
+        assertEquals(1800L, BreakReminderHelper.getRemainingSecondsToThirtyMinutes())
+    }
 }

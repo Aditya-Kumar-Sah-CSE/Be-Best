@@ -1,10 +1,10 @@
 {
-  "versionCode": 8,
-  "versionName": "1.2.5",
-  "releaseNotes": "• 10m & 5m Quota Warnings: Timely notifications delivered when approaching daily limits with persistence and at-most-once daily delivery\n• Daily Limit Enforcement & Keyboard Bypass Fix: Resolved IME soft-keyboard interruption to maintain persistent blocking across repeated reopenings\n• 5-Minute Break Countdown Across Screen-Off: Real elapsed-time break countdown that continues in background, wakes on expiry, and recovers across device reboot",
-  "apkUrl": "https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/release/FocusLock-v1.2.5.apk",
-  "apkSha256": "9402DFBC34B243F224FB52BD44D4B09169D0E0F1D21D1B7177B58CF051EDAA37",
-  "apkSizeBytes": 12234450,
+  "versionCode": 9,
+  "versionName": "1.2.6",
+  "releaseNotes": "• Background Screen-Off Timer Stop & Auto-Reset: 30-minute continuous screen timer and 5-minute rest timer cleanly stop after 5m of screen-off in background without accumulating hours of background usage\n• PowerManager Integration: Verifies interactive screen state to prevent phantom session starts while phone is asleep\n• AlarmManager Deep Sleep Expiry: Wakes reliably in background after 5m screen-off to complete break and reset timers\n• Break Completion UI: Proper completion message on Break Alert screen with 00:00 session reset on continue",
+  "apkUrl": "https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/release/FocusLock-v1.2.6.apk",
+  "apkSha256": "22282600BF8DF935F911DFBFEE35F0DC6BB30DEB229898B5702C71F6644E8C81",
+  "apkSizeBytes": 12234491,
   "minSupportedVersionCode": 1,
   "isMandatory": false
 }

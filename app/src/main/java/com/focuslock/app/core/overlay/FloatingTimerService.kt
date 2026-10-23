@@ -68,9 +68,15 @@ class FloatingTimerService : Service() {
             screenReceiverRegistered = true
         } catch (e: Exception) {}
 
-        // Initialize session and overlay
-        BreakReminderHelper.onScreenOn(applicationContext)
-        FloatingTimerManager.show(applicationContext)
+        // Initialize session and overlay according to actual screen interactive state
+        val powerManager = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+        if (powerManager?.isInteractive == true) {
+            BreakReminderHelper.onScreenOn(applicationContext)
+            FloatingTimerManager.show(applicationContext)
+        } else {
+            BreakReminderHelper.onScreenOff(applicationContext)
+            FloatingTimerManager.hide()
+        }
 
         // Start background verification and alert check loop
         startMonitorLoop()

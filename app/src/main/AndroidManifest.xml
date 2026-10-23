@@ -138,6 +138,7 @@
                 <action android:name="com.focuslock.app.ACTION_DISMISS_BREAK_REMINDER" />
                 <action android:name="com.focuslock.app.ACTION_START_BREAK" />
                 <action android:name="com.focuslock.app.ACTION_BREAK_COMPLETE" />
+                <action android:name="com.focuslock.app.ACTION_SCREEN_OFF_EXPIRED" />
             </intent-filter>
         </receiver>
 
