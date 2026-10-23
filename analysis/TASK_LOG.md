@@ -4,6 +4,30 @@ This log tracks technical tasks, bug fixes, refactorings, and intelligence setup
 
 ---
 
+### [TASK-010] Fix Instagram Limit Bypass — Race Condition & Cache Synchronization + v1.2.8 Release
+- **Date**: 2026-10-23
+- **Objective**: Fix bug where Instagram could still be opened and interacted with after the daily limit was hit, and build production-ready APK v1.2.8.
+- **Root Causes**:
+  1. `checkAndEnforceBlock()` ran asynchronously on `Dispatchers.IO`. During coroutine suspension for DB queries, Instagram UI rendered and became interactive.
+  2. `refreshBlockedPackagesCache()` spawned an unmanaged `CoroutineScope(Dispatchers.IO)` on every call, leaking coroutines and causing concurrent cache recalculations to race and clear each other.
+  3. `QuotaEngine.recordUsage()` returned `Unit`, forcing callers to do a round-trip `evaluateQuota()` DB query to know if quota was exhausted, delaying cache updates.
+- **Key Changes**:
+  1. `QuotaEngine.kt`: Changed `recordUsage()` return type to `Boolean` to indicate if the app is now blocked (quota exhausted) after recording usage.
+  2. `FocusLockAccessibilityService.kt`:
+     - In both 1-second monitoring ticker and session end, immediately updated `blockedPackagesCache` when `recordUsage()` returns `true`.
+     - Replaced per-call `CoroutineScope` with singleton `sharedCacheScope` (with `SupervisorJob`) and `Mutex` in `refreshBlockedPackagesCache()`.
+     - Implemented atomic cache swap to prevent intermediate states where cache was partially cleared.
+  3. `FocusLockApp.kt`: Warmed in-memory blocked cache via `refreshBlockedPackagesCache()` in background on application startup.
+  4. `QuotaEngineTest.kt`: Added unit test `testRecordUsage_ReturnsBlockedStatus()` verifying Boolean return contract.
+  5. `build.gradle.kts`: Bumped `versionCode` to 11, `versionName` to `1.2.8`.
+  6. `release-metadata.json`: Updated for v1.2.8 with SHA-256 and byte size.
+  7. Built signed release APK: `release/FocusLock-v1.2.8.apk`.
+- **Verification**:
+  - `gradlew testDebugUnitTest`: Passed all unit tests cleanly.
+  - `gradlew assembleRelease`: Build succeeded in 4m 15s.
+
+---
+
 ### [TASK-009] Fix Blocking Activity Launch & No-Redirection Over Restricted Apps (Instagram)
 - **Date**: 2026-10-23
 - **Objective**: Fix bug where restricted apps (like Instagram) could be opened or re-opened from the launcher without redirection to FocusLock's Blocking Screen.

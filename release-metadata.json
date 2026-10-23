@@ -1,10 +1,10 @@
 {
-  "versionCode": 10,
-  "versionName": "1.2.7",
-  "releaseNotes": "• Instagram & Restricted App Redirection Fix: BlockingActivity elevated via singleTask and dedicated taskAffinity with FLAG_ACTIVITY_REORDER_TO_FRONT and Android 14+ background launch permissions\n• BAL & OEM Displacement Safety Fallback: Automatically displaces restricted apps to Home within 250ms if background launch is silently suppressed by OEM battery/window policies\n• Live Cache Reconcile: AppDetailsViewModel and AppSelectionViewModel automatically sync in-memory cache on limit updates and toggles\n• Zero-Second Immediate Blocking: Applications configured with 0-second limits are blocked instantly without waiting for usage records",
-  "apkUrl": "https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/release/FocusLock-v1.2.7.apk",
-  "apkSha256": "3646F14DB0F44FD33227B196A9254629D32804D7D743597F58A493B52C72D34A",
-  "apkSizeBytes": 12234512,
+  "versionCode": 11,
+  "versionName": "1.2.8",
+  "releaseNotes": "• Instagram Limit Bypass Fix: Solved race conditions where Instagram could remain open and interactive after daily limit exhaustion\n• Immediate Quota Block: QuotaEngine.recordUsage synchronously signals limit exhaustion and updates in-memory cache with zero delay\n• Singleton Cache Scope & Mutex: Eliminated CoroutineScope leaks and racing clears in background cache refresh\n• Atomic Cache Swap: Prevents transient unblocked states during cache recalculation\n• Cold Start Warmup: Cache is actively populated during application launch",
+  "apkUrl": "https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/release/FocusLock-v1.2.8.apk",
+  "apkSha256": "BD8E81EECA10F727B033819229D434BBA489A091C831CF3AAC5AC98A1E241C62",
+  "apkSizeBytes": 12234517,
   "minSupportedVersionCode": 1,
   "isMandatory": false
 }

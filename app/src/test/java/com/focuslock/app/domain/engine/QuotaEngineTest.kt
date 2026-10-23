@@ -761,4 +761,19 @@ class QuotaEngineTest {
         assertNotNull("Warning flags must be reset on new day, allowing new warnings", deliveryDay2)
         assertEquals(QuotaWarningType.TEN_MINUTES, deliveryDay2!!.warningToDeliver)
     }
+
+    @Test
+    fun testRecordUsage_ReturnsBlockedStatus() = runBlocking {
+        // Limit is 1800s (30m). Under limit: recordUsage must return false.
+        val underLimit = quotaEngine.recordUsage(instagramPkg, 1200L)
+        assertFalse("Under limit must return false (not blocked)", underLimit)
+
+        // Reach exactly 1800s: recordUsage must return true (blocked).
+        val atLimit = quotaEngine.recordUsage(instagramPkg, 600L)
+        assertTrue("At limit must return true (blocked immediately)", atLimit)
+
+        // Further recording when already blocked: must return true.
+        val overLimit = quotaEngine.recordUsage(instagramPkg, 10L)
+        assertTrue("Over limit must return true (blocked)", overLimit)
+    }
 }

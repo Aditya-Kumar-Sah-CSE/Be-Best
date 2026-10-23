@@ -79,6 +79,7 @@ class FocusLockApp : Application() {
                 if (database.protectedAppDao().getActiveProtectedApps().isEmpty()) {
                     appRepository.selectAllSuggestedDistractions(1800L)
                 }
+                com.focuslock.app.service.FocusLockAccessibilityService.refreshBlockedPackagesCache()
             } catch (e: Exception) {}
         }
     }

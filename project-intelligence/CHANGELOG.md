@@ -4,6 +4,23 @@ All notable changes to the FocusLock application, its architectural systems, and
 
 ---
 
+## [v1.2.8] — 2026-10-23
+
+### Instagram Limit Bypass — Race Condition & Cache Synchronization Fix
+- **Root Causes**:
+  1. **Race Condition in `checkAndEnforceBlock`**: The blocking logic ran asynchronously on `Dispatchers.IO`. During the coroutine suspension for DB queries, Instagram's UI was fully rendered and interactive. The fast-path `isPackageBlockedFast()` relied on `blockedPackagesCache`, but this cache was not updated when `recordUsage()` detected quota exhaustion — only when the separate monitoring ticker or `refreshBlockedPackagesCache()` ran later.
+  2. **CoroutineScope Leak in `refreshBlockedPackagesCache`**: Each invocation created a brand new `CoroutineScope(Dispatchers.IO)` (orphaned, never cancelled). Concurrent refreshes could race against each other — one clearing the blocked cache while another was still populating it, creating a transient window where Instagram appeared unblocked.
+  3. **Cache Update Gap in `recordUsage`**: `QuotaEngine.recordUsage()` returned `Unit` (void), so callers had no way to know if the app's quota was just exhausted without performing a separate `evaluateQuota()` DB query. This round-trip delay allowed Instagram to remain interactive.
+- **Fixes Applied**:
+  1. **`recordUsage` returns `Boolean`**: `QuotaEngine.recordUsage()` now returns `true` when quota is exhausted, enabling callers to immediately update `blockedPackagesCache` without a second DB query.
+  2. **Immediate Cache Update**: Both the 1-second monitoring ticker and `recordPreviousSession()` in `FocusLockAccessibilityService` now add the package to `blockedPackagesCache` immediately when `recordUsage()` returns `true`.
+  3. **Singleton Shared Scope + Mutex**: Replaced per-call `CoroutineScope` in `refreshBlockedPackagesCache()` with a shared `sharedCacheScope` (with `SupervisorJob`) and `Mutex` to serialize concurrent refreshes, eliminating scope leaks and race conditions.
+  4. **Atomic Cache Swap**: `refreshBlockedPackagesCache()` now builds complete blocked/protected sets before applying, preventing intermediate states where the cache is partially cleared.
+  5. **Application Cold-Start Warmup**: `FocusLockApp.onCreate()` warms `refreshBlockedPackagesCache()` in background on launch.
+- **Version**: `1.2.7` → `1.2.8` (versionCode `10` → `11`).
+
+---
+
 ## [v1.2.7] — 2026-10-23
 
 ### Blocking Activity Launch Failure & No-Redirection Over Restricted Apps (Instagram) Fix

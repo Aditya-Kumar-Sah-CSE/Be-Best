@@ -325,8 +325,13 @@ class QuotaEngine(
      * Accumulates real usage for an application.
      * Prevents negative additions and duplicate inflations.
      */
-    suspend fun recordUsage(packageName: String, additionalSeconds: Long, source: String = "REAL_TRACKER") {
-        if (additionalSeconds <= 0L) return
+    /**
+     * Accumulates real usage for an application.
+     * Returns true if the app is now blocked (quota exhausted) after recording.
+     * Prevents negative additions and duplicate inflations.
+     */
+    suspend fun recordUsage(packageName: String, additionalSeconds: Long, source: String = "REAL_TRACKER"): Boolean {
+        if (additionalSeconds <= 0L) return false
 
         val todayDate = TimeUtils.formatDate(timeProvider.getTodayLocalDate())
         val tzId = timeProvider.getZoneId().id
@@ -349,6 +354,7 @@ class QuotaEngine(
                     updatedAt = now
                 )
             )
+            return isBlocked
         } else {
             val newTotal = existing.usedSeconds + additionalSeconds
             val isBlocked = existing.isBlocked || (newTotal >= quotaSeconds)
@@ -360,6 +366,7 @@ class QuotaEngine(
                     updatedAt = now
                 )
             )
+            return isBlocked
         }
     }
 

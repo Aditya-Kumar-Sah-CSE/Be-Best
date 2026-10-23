@@ -20,6 +20,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class FocusLockAccessibilityService : AccessibilityService() {
 
@@ -288,11 +290,15 @@ class FocusLockAccessibilityService : AccessibilityService() {
                             // Record exact incremental seconds to QuotaEngine every second
                             if (deltaSecs >= 1L) {
                                 lastRecordedElapsed += deltaSecs * 1000L
-                                FocusLockApp.instance.quotaEngine.recordUsage(
+                                val isNowBlocked = FocusLockApp.instance.quotaEngine.recordUsage(
                                     packageName = packageName,
                                     additionalSeconds = deltaSecs,
                                     source = "ACCESSIBILITY_ACTIVE"
                                 )
+                                // Immediately update in-memory cache when quota exhausted
+                                if (isNowBlocked) {
+                                    blockedPackagesCache.add(packageName)
+                                }
                                 // Check warnings as seconds accumulate
                                 checkAndDispatchQuotaWarnings(packageName)
                             }
@@ -610,11 +616,15 @@ class FocusLockAccessibilityService : AccessibilityService() {
         serviceScope.launch {
             try {
                 if (remainingSecs > 0L) {
-                    FocusLockApp.instance.quotaEngine.recordUsage(
+                    val isNowBlocked = FocusLockApp.instance.quotaEngine.recordUsage(
                         packageName = prevPkg,
                         additionalSeconds = remainingSecs,
                         source = "ACCESSIBILITY_SESSION_END"
                     )
+                    // Immediately update cache so next open is blocked instantly
+                    if (isNowBlocked) {
+                        blockedPackagesCache.add(prevPkg)
+                    }
                 }
                 FocusLockApp.instance.realUsageTracker.syncPackageUsage(prevPkg)
             } catch (e: Exception) {}
@@ -666,6 +676,11 @@ class FocusLockAccessibilityService : AccessibilityService() {
         private val protectedPackagesCache = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
         private val appNamesCache = java.util.concurrent.ConcurrentHashMap<String, String>()
 
+        // Shared scope prevents orphaned CoroutineScope leaks from repeated refreshBlockedPackagesCache calls
+        private val sharedCacheScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        // Mutex prevents concurrent cache refreshes from racing and clearing each other's results
+        private val cacheRefreshMutex = Mutex()
+
         fun isPackageBlockedFast(packageName: String): Boolean {
             return blockedPackagesCache.contains(packageName)
         }
@@ -686,38 +701,49 @@ class FocusLockAccessibilityService : AccessibilityService() {
         }
 
         fun refreshBlockedPackagesCache(context: Context? = null) {
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    val app = FocusLockApp.instance
-                    val today = com.focuslock.app.core.util.TimeUtils.getTodayDateString()
-                    val protectedApps = app.database.protectedAppDao().getActiveProtectedApps()
-                    val newProtected = mutableSetOf<String>()
-                    val nowWall = System.currentTimeMillis()
-                    val nowElapsed = SystemClock.elapsedRealtime()
+            sharedCacheScope.launch {
+                cacheRefreshMutex.withLock {
+                    try {
+                        val app = FocusLockApp.instance
+                        val today = com.focuslock.app.core.util.TimeUtils.getTodayDateString()
+                        val protectedApps = app.database.protectedAppDao().getActiveProtectedApps()
+                        val newProtected = mutableSetOf<String>()
+                        val newBlocked = mutableSetOf<String>()
+                        val nowWall = System.currentTimeMillis()
+                        val nowElapsed = SystemClock.elapsedRealtime()
 
-                    for (pApp in protectedApps) {
-                        newProtected.add(pApp.packageName)
-                        appNamesCache[pApp.packageName] = pApp.displayName
-                        val usage = app.database.usageDao().getDailyUsageForApp(pApp.packageName, today)
-                        val isEmergency = usage != null && usage.emergencyUsed &&
-                                nowWall < usage.emergencyExpiresAt &&
-                                (nowElapsed - usage.emergencyElapsedRealtimeAtStart) < 30_000L
-                        val accurateUsed = usage?.usedSeconds ?: app.realUsageTracker.queryAccurateUsageSeconds(pApp.packageName)
-                        val isExhausted = (pApp.dailyLimitSeconds == 0L) ||
-                                (usage?.isBlocked == true) ||
-                                (accurateUsed >= pApp.dailyLimitSeconds)
-                        if (isExhausted && !isEmergency) {
-                            blockedPackagesCache.add(pApp.packageName)
-                        } else {
-                            blockedPackagesCache.remove(pApp.packageName)
+                        for (pApp in protectedApps) {
+                            newProtected.add(pApp.packageName)
+                            appNamesCache[pApp.packageName] = pApp.displayName
+                            val usage = app.database.usageDao().getDailyUsageForApp(pApp.packageName, today)
+                            val isEmergency = usage != null && usage.emergencyUsed &&
+                                    nowWall < usage.emergencyExpiresAt &&
+                                    (nowElapsed - usage.emergencyElapsedRealtimeAtStart) < 30_000L
+                            val accurateUsed = usage?.usedSeconds ?: app.realUsageTracker.queryAccurateUsageSeconds(pApp.packageName)
+                            val isExhausted = (pApp.dailyLimitSeconds == 0L) ||
+                                    (usage?.isBlocked == true) ||
+                                    (accurateUsed >= pApp.dailyLimitSeconds)
+                            if (isExhausted && !isEmergency) {
+                                newBlocked.add(pApp.packageName)
+                            }
                         }
+                        // Atomic swap: build complete sets first, then apply
+                        // This prevents the window where cache is partially cleared
+                        synchronized(protectedPackagesCache) {
+                            protectedPackagesCache.clear()
+                            protectedPackagesCache.addAll(newProtected)
+                        }
+                        // Remove packages that are no longer blocked, add newly blocked
+                        val currentBlocked = blockedPackagesCache.toSet()
+                        for (pkg in currentBlocked) {
+                            if (newProtected.contains(pkg) && !newBlocked.contains(pkg)) {
+                                blockedPackagesCache.remove(pkg)
+                            }
+                        }
+                        blockedPackagesCache.addAll(newBlocked)
+                    } catch (e: Exception) {
+                        // Ignore
                     }
-                    synchronized(protectedPackagesCache) {
-                        protectedPackagesCache.clear()
-                        protectedPackagesCache.addAll(newProtected)
-                    }
-                } catch (e: Exception) {
-                    // Ignore
                 }
             }
         }
