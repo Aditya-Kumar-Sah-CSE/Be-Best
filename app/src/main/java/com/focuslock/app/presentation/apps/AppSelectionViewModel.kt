@@ -120,14 +120,17 @@ class AppSelectionViewModel(application: Application) : AndroidViewModel(applica
 
     fun toggleAppProtection(appItem: InstalledAppItem) {
         viewModelScope.launch {
+            val newEnabled = !appItem.isProtected
             appRepo.setAppProtection(
                 packageName = appItem.packageName,
                 appName = appItem.appName,
-                enabled = !appItem.isProtected,
+                enabled = newEnabled,
                 limitSeconds = appItem.dailyLimitSeconds,
                 category = appItem.category
             )
-            com.focuslock.app.service.FocusLockAccessibilityService.refreshBlockedPackagesCache()
+            try {
+                com.focuslock.app.service.FocusLockAccessibilityService.onAppProtectionChanged(appItem.packageName, newEnabled)
+            } catch (e: Exception) {}
             loadApps()
         }
     }

@@ -4,6 +4,34 @@ All notable changes to the FocusLock application, its architectural systems, and
 
 ---
 
+## [v1.2.9] — 2026-11-15
+
+### Android 13/14+ Restricted Settings Resolution & Tracking Pruning After Lock Removal
+- **Root Causes**:
+  1. **Android 13/14+ Restricted Settings ("App was denied access")**: On Android 13 (API 33) and Android 14+ (API 34+), sideloaded APKs have dangerous permissions (`PACKAGE_USAGE_STATS` and `BIND_ACCESSIBILITY_SERVICE`) locked under Android Restricted Settings (`AppOpsManager.OP_ACCESS_RESTRICTED_SETTINGS`). The system switch was greyed out with "Controlled by restricted setting", and tapping it prompted "App was denied access". Users had no direct guidance or shortcut to unlock this.
+  2. **Cache Pruning Bug in `refreshBlockedPackagesCache`**: `blockedPackagesCache.remove(pkg)` was only invoked `if (newProtected.contains(pkg) && !newBlocked.contains(pkg))`. If protection was removed/disabled for an app, `newProtected.contains(pkg)` was false, so the app was never pruned from `blockedPackagesCache` and remained blocked indefinitely.
+  3. **Unchecked Usage Recording & Tracking on Unprotected Apps**:
+     - `recordPreviousSession()` in `FocusLockAccessibilityService` was called on all window transitions and recorded usage via `QuotaEngine.recordUsage()` and `RealUsageTracker.syncPackageUsage()` without checking if the package was actively protected.
+     - `QuotaEngine.recordUsage()` did not verify `app.enabled`, recording daily usage into `DailyUsageEntity` and setting `isBlocked = true` even for disabled or unmanaged apps.
+     - `onAccessibilityEvent()` recorded scroll counts (`recordScrollInteraction`) indiscriminately for all applications on the device.
+     - `checkAndEnforceBlock()` auto-added suggested distractions into the protected database on foreground launch even after the user removed them.
+- **Fixes Applied**:
+  1. **Restricted Settings Onboarding & Settings Helper**:
+     - Added `RestrictedSettingsHelpCard` in `OnboardingScreen.kt` (for Usage Access & Accessibility steps) and `PermissionStatusScreen.kt`.
+     - Provided a 1-tap shortcut (`openAppDetailsSettings`) directing to `Settings.ACTION_APPLICATION_DETAILS_SETTINGS` (`package:com.focuslock.app`) with clear 4-step instructions on enabling "Allow restricted settings" from the top-right 3-dot menu (⋮).
+  2. **Authoritative Cache Pruning**:
+     - `refreshBlockedPackagesCache()` now cleans up all packages not present in `newBlocked` (`blockedPackagesCache.removeAll(toRemove.toSet())`), guaranteeing unmanaged/disabled apps are immediately cleared from memory.
+  3. **Strict Protection Gates for Tracking & Quotas**:
+     - `FocusLockAccessibilityService.onAccessibilityEvent()` now checks `isPackageProtectedFast(pkg)` before recording scroll events.
+     - `recordPreviousSession()` exits immediately if `!isPackageProtectedFast(prevPkg)`.
+     - `QuotaEngine.recordUsage()` verifies `app != null && app.enabled`; returns `false` without writing usage for unprotected apps.
+     - `RealUsageTracker.syncPackageUsage()` and `reconcileWithAndroidUsageStats()` ensure unmanaged apps are never marked as `isBlocked = true` and clear any legacy stale block states.
+     - `AppSelectionViewModel`, `AppDetailsViewModel`, and `AppRepository` immediately notify `FocusLockAccessibilityService.onAppProtectionChanged(packageName, enabled)` on toggle.
+  4. **Automated Unit Tests**:
+     - Added `testDisablingProtection_stopsTracking_andUnblocksImmediately()` and `testUnprotectedApp_recordUsage_returnsFalse_neverBlocked()` in `ExternalAppBlockingTest.kt`. All 25 test suites passed.
+
+---
+
 ## [v1.2.8] — 2026-10-23
 
 ### Instagram Limit Bypass — Race Condition & Cache Synchronization Fix

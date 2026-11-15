@@ -1,10 +1,10 @@
 {
-  "versionCode": 11,
-  "versionName": "1.2.8",
-  "releaseNotes": "• Instagram Limit Bypass Fix: Solved race conditions where Instagram could remain open and interactive after daily limit exhaustion\n• Immediate Quota Block: QuotaEngine.recordUsage synchronously signals limit exhaustion and updates in-memory cache with zero delay\n• Singleton Cache Scope & Mutex: Eliminated CoroutineScope leaks and racing clears in background cache refresh\n• Atomic Cache Swap: Prevents transient unblocked states during cache recalculation\n• Cold Start Warmup: Cache is actively populated during application launch",
-  "apkUrl": "https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/release/FocusLock-v1.2.8.apk",
-  "apkSha256": "BD8E81EECA10F727B033819229D434BBA489A091C831CF3AAC5AC98A1E241C62",
-  "apkSizeBytes": 12234517,
+  "versionCode": 12,
+  "versionName": "1.2.9",
+  "releaseNotes": "• Android 13/14+ Restricted Settings Resolution: In-app guidance card and 1-tap shortcut to FocusLock App Info to easily allow restricted settings\n• Fix App Tracking After Lock Removal: Strictly halts background session tracking and scroll recording when an app's lock/protection is disabled\n• Authoritative Cache Pruning: Prevents unmanaged apps from being stuck in the in-memory blocked cache\n• Database State Synchronization: Automatically clears legacy stale blocked flags in Room DB when protection is toggled off",
+  "apkUrl": "https://raw.githubusercontent.com/Aditya-Kumar-Sah-CSE/Be-Best/main/release/FocusLock-v1.2.9.apk",
+  "apkSha256": "3F1957EA2519E6BA79E677BBC4F920EB1ED50764DEBF3D3DB3E9A8703EEB20BA",
+  "apkSizeBytes": 12234513,
   "minSupportedVersionCode": 1,
   "isMandatory": false
 }

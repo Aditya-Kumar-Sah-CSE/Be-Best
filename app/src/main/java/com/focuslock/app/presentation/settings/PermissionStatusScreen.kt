@@ -3,10 +3,13 @@ package com.focuslock.app.presentation.settings
 import android.app.AppOpsManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.os.Process
 import android.provider.Settings
+import com.focuslock.app.presentation.onboarding.RestrictedSettingsHelpCard
+import com.focuslock.app.presentation.onboarding.openAppDetailsSettings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -213,6 +216,16 @@ fun PermissionStatusScreen(
                                 com.focuslock.app.core.overlay.FloatingTimerManager.requestOverlayPermission(context)
                             }
                         )
+                    }
+
+                    if (!hasUsageAccess || !hasAccessibility) {
+                        item {
+                            RestrictedSettingsHelpCard(
+                                onOpenAppSettings = {
+                                    openAppDetailsSettings(context)
+                                }
+                            )
+                        }
                     }
 
                     item {

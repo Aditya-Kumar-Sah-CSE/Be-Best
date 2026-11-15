@@ -3,6 +3,7 @@ package com.focuslock.app.presentation.onboarding
 import android.app.AppOpsManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Process
 import android.provider.Settings
@@ -27,8 +28,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -45,6 +48,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -406,10 +410,12 @@ private fun UsagePermissionScreenContent(
     hasUsage: Boolean,
     onOpenSettings: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(vertical = 12.dp),
+            .padding(vertical = 12.dp)
+            .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -530,6 +536,13 @@ private fun UsagePermissionScreenContent(
                 )
             }
         }
+
+        if (!hasUsage) {
+            Spacer(modifier = Modifier.height(16.dp))
+            RestrictedSettingsHelpCard(
+                onOpenAppSettings = { openAppDetailsSettings(context) }
+            )
+        }
     }
 }
 
@@ -541,10 +554,12 @@ private fun AccessibilityPermissionScreenContent(
     hasAccessibility: Boolean,
     onOpenSettings: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(vertical = 12.dp),
+            .padding(vertical = 12.dp)
+            .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -653,6 +668,86 @@ private fun AccessibilityPermissionScreenContent(
                 )
             }
         }
+
+        if (!hasAccessibility) {
+            Spacer(modifier = Modifier.height(16.dp))
+            RestrictedSettingsHelpCard(
+                onOpenAppSettings = { openAppDetailsSettings(context) }
+            )
+        }
+    }
+}
+
+@Composable
+fun RestrictedSettingsHelpCard(
+    modifier: Modifier = Modifier,
+    onOpenAppSettings: () -> Unit
+) {
+    FocusCard(
+        modifier = modifier.fillMaxWidth(),
+        cornerRadius = 16.dp,
+        backgroundColor = Color(0xFF1B1834),
+        borderColor = BrandCyan.copy(alpha = 0.5f),
+        contentPadding = 14.dp
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = null,
+                    tint = BrandCyan,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Restricted Setting / Denied Access?",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Android 13/14+ restricts sideloaded apps by default. To unlock:\n1. Tap 'Open App Settings' below\n2. In top-right corner, tap 3 dots (⋮)\n3. Tap 'Allow restricted settings' & enter PIN/Fingerprint\n4. Return here and turn ON the switch!",
+                fontSize = 11.sp,
+                color = Neutral200,
+                lineHeight = 16.sp
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            OutlinedButton(
+                onClick = onOpenAppSettings,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(38.dp),
+                shape = RoundedCornerShape(10.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, BrandCyan),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = BrandCyan)
+            ) {
+                Text(
+                    text = "Open App Settings (Allow Restricted)",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+}
+
+fun openAppDetailsSettings(context: Context) {
+    try {
+        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.fromParts("package", context.packageName, null)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        context.startActivity(Intent(Settings.ACTION_SETTINGS).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        })
     }
 }
 

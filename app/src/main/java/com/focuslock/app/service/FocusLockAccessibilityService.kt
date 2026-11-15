@@ -147,7 +147,7 @@ class FocusLockAccessibilityService : AccessibilityService() {
         val eventType = event.eventType
         if (eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
             val pkg = event.packageName?.toString() ?: return
-            if (!isExcludedPackage(pkg)) {
+            if (!isExcludedPackage(pkg) && isPackageProtectedFast(pkg)) {
                 recordScrollInteraction(pkg)
             }
             return
@@ -204,27 +204,7 @@ class FocusLockAccessibilityService : AccessibilityService() {
 
     private fun checkAndEnforceBlock(packageName: String, isNewApp: Boolean) {
         serviceScope.launch {
-            // Check if app is explicitly protected OR if it's a known distraction (e.g., Instagram, YouTube)
-            var app = FocusLockApp.instance.appRepository.getApp(packageName)
-            if (app == null) {
-                val category = com.focuslock.app.domain.model.AppCategory.inferCategory(packageName)
-                if (category.isSuggestedDistraction) {
-                    val appName = try {
-                        val ai = packageManager.getApplicationInfo(packageName, 0)
-                        packageManager.getApplicationLabel(ai).toString()
-                    } catch (e: Exception) {
-                        packageName.substringAfterLast('.').replaceFirstChar { it.uppercase() }
-                    }
-                    FocusLockApp.instance.appRepository.setAppProtection(
-                        packageName = packageName,
-                        appName = appName,
-                        enabled = true,
-                        limitSeconds = 1800L,
-                        category = category
-                    )
-                    app = FocusLockApp.instance.appRepository.getApp(packageName)
-                }
-            }
+            val app = FocusLockApp.instance.appRepository.getApp(packageName)
 
             if (app != null && app.enabled) {
                 appNamesCache[packageName] = app.displayName
@@ -324,6 +304,12 @@ class FocusLockAccessibilityService : AccessibilityService() {
             } else {
                 blockedPackagesCache.remove(packageName)
                 protectedPackagesCache.remove(packageName)
+                if (currentForegroundPackage == packageName) {
+                    currentForegroundPackage = null
+                    currentSessionStartElapsed = 0L
+                    lastRecordedElapsed = 0L
+                }
+                activeMonitoringJob?.cancel()
             }
         }
     }
@@ -613,6 +599,11 @@ class FocusLockAccessibilityService : AccessibilityService() {
         currentSessionStartElapsed = 0L
         lastRecordedElapsed = 0L
 
+        // Do not track or record usage for packages that are not actively protected
+        if (!isPackageProtectedFast(prevPkg)) {
+            return
+        }
+
         serviceScope.launch {
             try {
                 if (remainingSecs > 0L) {
@@ -689,6 +680,16 @@ class FocusLockAccessibilityService : AccessibilityService() {
             return protectedPackagesCache.contains(packageName)
         }
 
+        fun onAppProtectionChanged(packageName: String, enabled: Boolean) {
+            if (!enabled) {
+                blockedPackagesCache.remove(packageName)
+                protectedPackagesCache.remove(packageName)
+            } else {
+                protectedPackagesCache.add(packageName)
+            }
+            refreshBlockedPackagesCache()
+        }
+
         fun updateBlockedPackage(packageName: String, isBlocked: Boolean, appName: String? = null) {
             if (appName != null) {
                 appNamesCache[packageName] = appName
@@ -734,12 +735,8 @@ class FocusLockAccessibilityService : AccessibilityService() {
                             protectedPackagesCache.addAll(newProtected)
                         }
                         // Remove packages that are no longer blocked, add newly blocked
-                        val currentBlocked = blockedPackagesCache.toSet()
-                        for (pkg in currentBlocked) {
-                            if (newProtected.contains(pkg) && !newBlocked.contains(pkg)) {
-                                blockedPackagesCache.remove(pkg)
-                            }
-                        }
+                        val toRemove = blockedPackagesCache.filter { !newBlocked.contains(it) }
+                        blockedPackagesCache.removeAll(toRemove.toSet())
                         blockedPackagesCache.addAll(newBlocked)
                     } catch (e: Exception) {
                         // Ignore

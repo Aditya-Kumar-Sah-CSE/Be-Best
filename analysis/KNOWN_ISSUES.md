@@ -22,6 +22,16 @@ This document records architectural boundaries, operating system quirks, OEM bat
 
 ## 2. Resolved Architectural Issues
 
+0. **Android 13/14+ Restricted Settings ("App was denied access") & Tracking After Lock Removal (Fixed v1.2.9)**:
+   - *Issue*:
+     1. On Android 13/14+, sideloaded APKs have Usage Access and Accessibility blocked under Android's Restricted Settings. Users saw "Controlled by restricted setting" and "App was denied access" when attempting to grant permission.
+     2. When users disabled protection or removed an app's daily limit, `FocusLockAccessibilityService.refreshBlockedPackagesCache()` failed to remove the package from `blockedPackagesCache`, keeping it blocked.
+     3. `recordPreviousSession()`, `QuotaEngine.recordUsage()`, and scroll monitoring tracked foreground time and scrolls for unprotected apps and marked them as blocked in Room DB.
+   - *Fix*:
+     - Integrated `RestrictedSettingsHelpCard` with a 1-tap shortcut to App Info (`ACTION_APPLICATION_DETAILS_SETTINGS`) and step-by-step guidance to enable "Allow restricted settings" from the top-right 3 dots (⋮).
+     - Fixed `refreshBlockedPackagesCache()` to remove all packages not in `newBlocked` (`blockedPackagesCache.removeAll(toRemove)`).
+     - Added checks in `recordPreviousSession()` (`isPackageProtectedFast`), `QuotaEngine.recordUsage()` (`app.enabled`), and `RealUsageTracker` to strictly gate tracking, prevent spurious blocks, and unblock disabled apps immediately.
+
 1. **Quota Erasure on Rapid App Launches (Fixed v1.0.1)**:
    - *Issue*: Quickly opening and closing blocked apps created 0-second sessions that could overwrite valid recorded usage in Room.
    - *Fix*: UsageRepository enforces `maxOf(measuredSeconds, existing.usedSeconds)`.

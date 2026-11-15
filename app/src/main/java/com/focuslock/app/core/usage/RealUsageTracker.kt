@@ -293,11 +293,21 @@ class RealUsageTracker(
         val tzId = timeProvider.getZoneId().id
 
         for (pkg in targetPackages) {
+            val app = protectedAppDao.getAppByPackageName(pkg)
+            val isProtected = app != null && app.enabled
+            if (!isProtected) {
+                // If this app is not actively protected, ensure it is unblocked and skip tracking
+                val existing = usageDao.getDailyUsageForApp(pkg, todayDate)
+                if (existing != null && existing.isBlocked) {
+                    usageDao.insertOrUpdateDailyUsage(existing.copy(isBlocked = false, updatedAt = now))
+                }
+                continue
+            }
+
             val sessionSummary = extractSessionsFromEvents(pkg, startDay, now, todayDate)
             val measuredSeconds = sessionSummary.totalForegroundSeconds
             val existing = usageDao.getDailyUsageForApp(pkg, todayDate)
-            val app = protectedAppDao.getAppByPackageName(pkg)
-            val quota = app?.dailyLimitSeconds ?: 1800L
+            val quota = app.dailyLimitSeconds
 
             // Store parsed sessions in Room
             if (sessionSummary.sessions.isNotEmpty()) {
@@ -312,11 +322,13 @@ class RealUsageTracker(
                     maxOf(measuredSeconds, existing.usedSeconds)
                 }
 
+                val isBlocked = existing.isBlocked || (quota == 0L) || (reconciledSeconds >= quota)
+
                 usageDao.insertOrUpdateDailyUsage(
                     existing.copy(
                         usedSeconds = reconciledSeconds,
                         quotaSeconds = quota,
-                        isBlocked = existing.isBlocked || (reconciledSeconds >= quota),
+                        isBlocked = isBlocked,
                         sessionCount = maxOf(existing.sessionCount, sessionSummary.sessionCount),
                         longestSessionSeconds = maxOf(existing.longestSessionSeconds, sessionSummary.longestSessionSeconds),
                         firstActivityAt = if (existing.firstActivityAt > 0L) existing.firstActivityAt else sessionSummary.firstActivityAt,
@@ -327,6 +339,7 @@ class RealUsageTracker(
                     )
                 )
             } else if (measuredSeconds > 0L) {
+                val isBlocked = (quota == 0L) || (measuredSeconds >= quota)
                 usageDao.insertOrUpdateDailyUsage(
                     DailyUsageEntity(
                         packageName = pkg,
@@ -334,7 +347,7 @@ class RealUsageTracker(
                         timezoneId = tzId,
                         usedSeconds = measuredSeconds,
                         quotaSeconds = quota,
-                        isBlocked = measuredSeconds >= quota,
+                        isBlocked = isBlocked,
                         sessionCount = sessionSummary.sessionCount,
                         longestSessionSeconds = sessionSummary.longestSessionSeconds,
                         firstActivityAt = sessionSummary.firstActivityAt,
@@ -353,16 +366,26 @@ class RealUsageTracker(
      * Guaranteed to update Room immediately so quota checks are authoritative.
      */
     suspend fun syncPackageUsage(packageName: String): Long = withContext(Dispatchers.IO) {
-        val startDay = timeProvider.getStartOfDayMillis()
-        val now = timeProvider.currentTimeMillis()
+        val app = protectedAppDao.getAppByPackageName(packageName)
         val todayDate = TimeUtils.formatDate(timeProvider.getTodayLocalDate())
+        val now = timeProvider.currentTimeMillis()
+
+        if (app == null || !app.enabled) {
+            // App is not actively protected. Ensure any stale isBlocked flag in DB is cleared.
+            val existing = usageDao.getDailyUsageForApp(packageName, todayDate)
+            if (existing != null && existing.isBlocked) {
+                usageDao.insertOrUpdateDailyUsage(existing.copy(isBlocked = false, updatedAt = now))
+            }
+            return@withContext 0L
+        }
+
+        val startDay = timeProvider.getStartOfDayMillis()
         val tzId = timeProvider.getZoneId().id
 
         val sessionSummary = extractSessionsFromEvents(packageName, startDay, now, todayDate)
         val measuredSeconds = sessionSummary.totalForegroundSeconds
         val existing = usageDao.getDailyUsageForApp(packageName, todayDate)
-        val app = protectedAppDao.getAppByPackageName(packageName)
-        val quota = app?.dailyLimitSeconds ?: 1800L
+        val quota = app.dailyLimitSeconds
 
         if (sessionSummary.sessions.isNotEmpty()) {
             usageDao.replaceSessionsForAppAndDate(packageName, todayDate, sessionSummary.sessions)
@@ -376,11 +399,13 @@ class RealUsageTracker(
                 maxOf(measuredSeconds, existing.usedSeconds)
             }
 
+            val isBlocked = existing.isBlocked || (quota == 0L) || (reconciledSeconds >= quota)
+
             usageDao.insertOrUpdateDailyUsage(
                 existing.copy(
                     usedSeconds = reconciledSeconds,
                     quotaSeconds = quota,
-                    isBlocked = existing.isBlocked || (reconciledSeconds >= quota),
+                    isBlocked = isBlocked,
                     sessionCount = maxOf(existing.sessionCount, sessionSummary.sessionCount),
                     longestSessionSeconds = maxOf(existing.longestSessionSeconds, sessionSummary.longestSessionSeconds),
                     firstActivityAt = if (existing.firstActivityAt > 0L) existing.firstActivityAt else sessionSummary.firstActivityAt,
@@ -392,6 +417,7 @@ class RealUsageTracker(
             )
             reconciledSeconds
         } else if (measuredSeconds > 0L) {
+            val isBlocked = (quota == 0L) || (measuredSeconds >= quota)
             usageDao.insertOrUpdateDailyUsage(
                 DailyUsageEntity(
                     packageName = packageName,
@@ -399,7 +425,7 @@ class RealUsageTracker(
                     timezoneId = tzId,
                     usedSeconds = measuredSeconds,
                     quotaSeconds = quota,
-                    isBlocked = measuredSeconds >= quota,
+                    isBlocked = isBlocked,
                     sessionCount = sessionSummary.sessionCount,
                     longestSessionSeconds = sessionSummary.longestSessionSeconds,
                     firstActivityAt = sessionSummary.firstActivityAt,

@@ -173,7 +173,9 @@ class AppDetailsViewModel(application: Application) : AndroidViewModel(applicati
                 limitSeconds = state.dailyLimitSeconds,
                 category = state.category
             )
-            com.focuslock.app.service.FocusLockAccessibilityService.refreshBlockedPackagesCache()
+            try {
+                com.focuslock.app.service.FocusLockAccessibilityService.onAppProtectionChanged(state.packageName, newStatus)
+            } catch (e: Exception) {}
             loadAppDetails(state.packageName)
         }
     }

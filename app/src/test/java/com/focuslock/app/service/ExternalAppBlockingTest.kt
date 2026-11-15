@@ -641,5 +641,40 @@ class ExternalAppBlockingTest {
         assertTrue("Flags must contain FLAG_ACTIVITY_NEW_TASK", (expectedFlags and android.content.Intent.FLAG_ACTIVITY_NEW_TASK) != 0)
         assertTrue("Flags must contain FLAG_ACTIVITY_REORDER_TO_FRONT", (expectedFlags and android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT) != 0)
     }
+
+    @Test
+    fun testDisablingProtection_stopsTracking_andUnblocksImmediately() = runBlocking {
+        // 1. App reaches quota and is blocked
+        quotaEngine.recordUsage(instagramPkg, 1800L)
+        val initialEval = quotaEngine.evaluateQuota(instagramPkg)
+        assertTrue("App at limit must be initially blocked", initialEval.isBlocked)
+
+        // 2. User removes lock / disables protection for Instagram
+        val app = protectedAppDao.getAppByPackageName(instagramPkg)!!
+        protectedAppDao.insertOrUpdate(app.copy(enabled = false))
+
+        // 3. QuotaEngine must immediately report unblocked & ALLOWED
+        val disabledEval = quotaEngine.evaluateQuota(instagramPkg)
+        assertFalse("App with disabled protection must never be blocked", disabledEval.isBlocked)
+        assertEquals(ProtectionState.ALLOWED, disabledEval.status)
+
+        // 4. Any further usage recording must return false and NOT block
+        val recordedBlocked = quotaEngine.recordUsage(instagramPkg, 600L)
+        assertFalse("recordUsage must return false when protection is disabled", recordedBlocked)
+
+        val reEval = quotaEngine.evaluateQuota(instagramPkg)
+        assertFalse("App must remain completely unblocked after usage recording attempt", reEval.isBlocked)
+    }
+
+    @Test
+    fun testUnprotectedApp_recordUsage_returnsFalse_neverBlocked() = runBlocking {
+        val unknownPkg = "com.unprotected.example"
+        val isBlocked = quotaEngine.recordUsage(unknownPkg, 3600L)
+        assertFalse("Unprotected app must never be recorded as blocked", isBlocked)
+
+        val eval = quotaEngine.evaluateQuota(unknownPkg)
+        assertFalse("Unprotected app evaluation must never be blocked", eval.isBlocked)
+        assertEquals(ProtectionState.ALLOWED, eval.status)
+    }
 }
 

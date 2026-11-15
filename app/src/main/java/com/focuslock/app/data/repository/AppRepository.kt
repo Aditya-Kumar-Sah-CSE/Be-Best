@@ -114,6 +114,9 @@ class AppRepositoryImpl(
                 category = category.name
             )
         )
+        try {
+            com.focuslock.app.service.FocusLockAccessibilityService.onAppProtectionChanged(packageName, enabled)
+        } catch (e: Exception) {}
     }
 
     override suspend fun updateAppLimit(packageName: String, limitSeconds: Long) = withContext(Dispatchers.IO) {
@@ -143,6 +146,11 @@ class AppRepositoryImpl(
         val active = dao.getActiveProtectedApps()
         val disabled = active.map { it.copy(enabled = false) }
         dao.insertAll(disabled)
+        for (item in disabled) {
+            try {
+                com.focuslock.app.service.FocusLockAccessibilityService.onAppProtectionChanged(item.packageName, false)
+            } catch (e: Exception) {}
+        }
     }
 
     override fun getAppIcon(packageName: String): Drawable? {

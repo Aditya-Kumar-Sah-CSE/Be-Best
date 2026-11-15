@@ -4,6 +4,34 @@ This log tracks technical tasks, bug fixes, refactorings, and intelligence setup
 
 ---
 
+### [TASK-011] Fix Android 13/14+ Restricted Settings Access & Prune Tracking After Lock Removal + v1.2.9 Release
+- **Date**: 2026-11-15
+- **Objective**: Fix Android 13/14+ restricted settings blocking Usage Access & Accessibility ("App was denied access"), prevent background tracking/blocking after lock/protection removal, and build signed release APK v1.2.9.
+- **Root Causes**:
+  1. On Android 13/14+, sideloaded APKs have dangerous permissions restricted by OS policy (`OP_ACCESS_RESTRICTED_SETTINGS`). Users were blocked without an in-app guide or direct shortcut to FocusLock App Info.
+  2. In `FocusLockAccessibilityService.refreshBlockedPackagesCache()`, `blockedPackagesCache.remove(pkg)` only ran if `newProtected.contains(pkg) && !newBlocked.contains(pkg)`. Disabled apps (`enabled = false`) were never in `newProtected`, so they remained stuck in `blockedPackagesCache` permanently.
+  3. `recordPreviousSession()` and `onAccessibilityEvent()` tracked foreground sessions and scroll counts for unprotected apps without checking `isPackageProtectedFast(pkg)`.
+  4. `QuotaEngine.recordUsage()` and `RealUsageTracker` recorded daily usage and set `isBlocked = true` for unmanaged apps without checking `app.enabled`.
+- **Key Changes**:
+  1. `OnboardingScreen.kt` & `PermissionStatusScreen.kt`: Added `RestrictedSettingsHelpCard` with 4-step instructions and 1-tap `openAppDetailsSettings` shortcut to `Settings.ACTION_APPLICATION_DETAILS_SETTINGS`.
+  2. `FocusLockAccessibilityService.kt`:
+     - Pruned all non-exhausted packages in `refreshBlockedPackagesCache()` via `blockedPackagesCache.removeAll(toRemove)`.
+     - Filtered `recordScrollInteraction` and `recordPreviousSession` with `isPackageProtectedFast(pkg)`.
+     - Added `onAppProtectionChanged(packageName, enabled)` to immediately update in-memory caches.
+     - Reset foreground tracking timers in `checkAndEnforceBlock()` when `!app.enabled`.
+  3. `QuotaEngine.kt`: Added guard `if (app == null || !app.enabled) return false` in `recordUsage()`.
+  4. `RealUsageTracker.kt`: Cleared stale blocks and bypassed unmanaged apps in `syncPackageUsage()` and `reconcileWithAndroidUsageStats()`.
+  5. `AppRepository.kt`, `AppSelectionViewModel.kt`, `AppDetailsViewModel.kt`: Notified `onAppProtectionChanged` on toggle.
+  6. `ExternalAppBlockingTest.kt`: Added `testDisablingProtection_stopsTracking_andUnblocksImmediately()` and `testUnprotectedApp_recordUsage_returnsFalse_neverBlocked()`.
+  7. `build.gradle.kts`: Bumped `versionCode` to 12, `versionName` to `1.2.9`.
+  8. `release-metadata.json`: Updated for v1.2.9 with SHA-256 (`3F1957EA2519E6BA79E677BBC4F920EB1ED50764DEBF3D3DB3E9A8703EEB20BA`) and byte size (`12234513`).
+  9. Built signed release APK: `release/FocusLock-v1.2.9.apk`.
+- **Verification**:
+  - `gradlew testDebugUnitTest`: Passed all 25 unit test suites cleanly.
+  - `gradlew assembleRelease`: Passed and generated signed release APK in 5m 7s.
+
+---
+
 ### [TASK-010] Fix Instagram Limit Bypass — Race Condition & Cache Synchronization + v1.2.8 Release
 - **Date**: 2026-10-23
 - **Objective**: Fix bug where Instagram could still be opened and interacted with after the daily limit was hit, and build production-ready APK v1.2.8.

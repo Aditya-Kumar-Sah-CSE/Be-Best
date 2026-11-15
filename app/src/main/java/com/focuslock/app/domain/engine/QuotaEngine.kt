@@ -338,7 +338,10 @@ class QuotaEngine(
         val now = timeProvider.currentTimeMillis()
 
         val app = protectedAppDao.getAppByPackageName(packageName)
-        val quotaSeconds = app?.dailyLimitSeconds ?: 1800L
+        if (app == null || !app.enabled) {
+            return false
+        }
+        val quotaSeconds = app.dailyLimitSeconds
 
         val existing = usageDao.getDailyUsageForApp(packageName, todayDate)
         if (existing == null) {

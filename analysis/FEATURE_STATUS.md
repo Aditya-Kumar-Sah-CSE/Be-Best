@@ -8,8 +8,8 @@ This document inventories all major features of FocusLock, their active verifica
 
 | Feature | Primary Components | Status | Automated Test Coverage | Verification Method |
 | :--- | :--- | :--- | :--- | :--- |
-| **Instant App Blocking (Instagram, etc.)** | `FocusLockAccessibilityService`, `BlockingActivity`, `blockedPackagesCache` | **Active & Verified (v1.2.7)** | `ExternalAppBlockingTest.kt` | Unit tests passing; zero-lag (<50ms) blocking with dedicated task affinity, BAL fallback, and no home screen flash. |
-| **Custom App Daily Limits** | `AppDetailsScreen`, `AppDetailsViewModel`, `ProtectedAppDao` | **Active & Verified** | `ExternalAppBlockingTest.kt` | Supports custom limits down to 1-minute test preset (`1 * 60L`). |
+| **Instant App Blocking (Instagram, etc.)** | `FocusLockAccessibilityService`, `BlockingActivity`, `blockedPackagesCache` | **Active & Verified (v1.2.9)** | `ExternalAppBlockingTest.kt` | Unit tests passing; zero-lag (<50ms) blocking with dedicated task affinity, BAL fallback, and immediate cache pruning upon protection removal. |
+| **Custom App Daily Limits & Protection Toggle** | `AppDetailsScreen`, `AppDetailsViewModel`, `ProtectedAppDao` | **Active & Verified (v1.2.9)** | `ExternalAppBlockingTest.kt` | Supports custom limits down to 1-minute test preset; disabling protection immediately halts tracking and clears in-memory and database block states. |
 | **Ground-Truth Usage Tracking** | `RealUsageTracker`, `UsageRepositoryImpl`, `InstagramPackageHelper` | **Active & Verified** | `InstagramAndSessionTrackingTest.kt` | Queries `UsageStatsManager.queryEvents()`; measures real foreground seconds. |
 | **Session Analytics & Longest Session** | `AnalyticsScreen`, `DailyUsageDao` (Migration 4) | **Active & Verified** | `AnalyticsCalculationTest.kt` | Aggregates session counts, longest sessions, scroll estimates. |
 | **Floating Screen-Time Timer Overlay** | `FloatingTimerService`, `FloatingTimerManager` | **Active & Verified** | `FloatingTimerOverlayTest.kt`, `BreakReminderTest.kt` | Draggable AMOLED pill showing continuous screen time (◷ 00:00 / 30:00) and break countdown (☕ Break 05:00) over apps. |
